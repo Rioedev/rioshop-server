@@ -24,8 +24,8 @@ const categorySchema = new mongoose.Schema(
     description: String,
 
     image: {
-      url: String,
-      public_id: String,
+      type: Object,
+      required: true,
     },
 
     sortOrder: {

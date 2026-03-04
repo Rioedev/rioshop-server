@@ -1,5 +1,6 @@
 // routes/category.routes.js
 import express from "express";
+import { upload } from "../middlewares/upload.middleware.js";
 import {
   createCategory,
   getCategories,
@@ -7,53 +8,41 @@ import {
   getCategoryById,
   updateCategory,
   softDeleteCategory,
-  hardDeleteCategory
+  hardDeleteCategory,
 } from "../controllers/category.controller.js";
 
-import authMiddleware from "../middlewares/auth.middleware.js";
-import upload from "../middlewares/upload.middleware.js";
-import validate from "../middlewares/validate.middleware.js";
-import {
-  createCategorySchema,
-  updateCategorySchema
-} from "../validations/category.validation.js";
-
 const router = express.Router();
-
 
 // ===== PUBLIC =====
 router.get("/", getCategories);
 router.get("/tree", getCategoryTree);
 router.get("/:id", getCategoryById);
 
-
 // ===== CẦN ĐĂNG NHẬP =====
 router.post(
-  "/",
-  authMiddleware,
+  "/add",
+  // authMiddleware,
   upload.single("image"),
-  validate(createCategorySchema),
-  createCategory
+  createCategory,
 );
 
 router.put(
   "/:id",
-  authMiddleware,
+  // authMiddleware,
   upload.single("image"),
-  validate(updateCategorySchema),
-  updateCategory
+  updateCategory,
 );
 
 router.patch(
   "/:id/soft-delete",
-  authMiddleware,
-  softDeleteCategory
+  // authMiddleware,
+  softDeleteCategory,
 );
 
 router.delete(
   "/:id",
-  authMiddleware,
-  hardDeleteCategory
+  // authMiddleware,
+  hardDeleteCategory,
 );
 
 export default router;

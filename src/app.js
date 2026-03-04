@@ -12,11 +12,12 @@ const app = express();
  * MIDDLEWARES
  */
 
-app.use(cors());
+// parse application/json
+app.use(express.json());
+// parse application/x-www-form-urlencoded
+app.use(express.urlencoded({ extended: true }));
 
-// tăng limit vì có upload base64 image
-app.use(express.json({ limit: "10mb" }));
-app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(cors());
 
 app.use(morgan("dev"));
 
@@ -38,7 +39,7 @@ app.use("/api/categories", categoryRoute);
 
 app.use((req, res) => {
   res.status(404).json({
-    message: "API không tồn tại"
+    message: "API không tồn tại",
   });
 });
 
@@ -52,7 +53,7 @@ app.use((err, req, res, next) => {
   console.error("🔥 ERROR:", err);
 
   res.status(err.status || 500).json({
-    message: err.message || "Lỗi hệ thống"
+    message: err.message || "Lỗi hệ thống",
   });
 });
 
