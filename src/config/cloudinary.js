@@ -1,7 +1,6 @@
 import dotenv from "dotenv";
 import { v2 as cloudinary } from "cloudinary";
 
-// load .env early in case this module is imported before server startup
 dotenv.config();
 
 cloudinary.config({

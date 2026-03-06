@@ -9,23 +9,23 @@ const colorSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
-      trim: true
+      trim: true,
     },
 
     code: {
       type: String,
-      required: true
+      required: true,
     },
 
     images: [
       {
         url: { type: String, required: true },
         public_id: { type: String, required: true },
-        isThumbnail: { type: Boolean, default: false }
-      }
-    ]
+        isThumbnail: { type: Boolean, default: false },
+      },
+    ],
   },
-  { _id: true }
+  { _id: true },
 );
 
 /**
@@ -37,43 +37,43 @@ const variantSchema = new mongoose.Schema(
     sku: {
       type: String,
       required: true,
-      trim: true
+      trim: true,
     },
 
     colorId: {
       type: mongoose.Schema.Types.ObjectId,
-      required: true
+      required: true,
     },
 
     size: {
       type: String,
-      required: true
+      required: true,
     },
 
     price: {
       type: Number,
-      required: true
+      required: true,
     },
 
     originalPrice: Number,
 
     stock: {
       type: Number,
-      default: 0
+      default: 0,
     },
 
     reservedStock: {
       type: Number,
-      default: 0
+      default: 0,
     },
 
     status: {
       type: String,
       enum: ["available", "out_of_stock", "hidden"],
-      default: "available"
-    }
+      default: "available",
+    },
   },
-  { _id: true }
+  { _id: true },
 );
 
 /**
@@ -84,7 +84,7 @@ const productSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
-      trim: true
+      trim: true,
     },
 
     slug: {
@@ -92,16 +92,23 @@ const productSchema = new mongoose.Schema(
       required: true,
     },
 
+    // phần mô tả dài có thể chứa HTML / rich text (nhiều ảnh, định dạng v.v.)
+    description: {
+      type: String,
+      default: "",
+      // lưu HTML hoặc markdown từ editor phía client
+    },
+
     brand: {
       type: String,
-      default: "Rioshop"
+      default: "Rioshop",
     },
 
     categoryIds: [
       {
         type: mongoose.Schema.Types.ObjectId,
-        ref: "Category"
-      }
+        ref: "Category",
+      },
     ],
 
     /**
@@ -111,9 +118,9 @@ const productSchema = new mongoose.Schema(
       colors: [colorSchema],
       sizes: [
         {
-          type: String
-        }
-      ]
+          type: String,
+        },
+      ],
     },
 
     /**
@@ -127,12 +134,12 @@ const productSchema = new mongoose.Schema(
     specs: {
       gender: {
         type: String,
-        enum: ["male", "female", "unisex"]
+        enum: ["male", "female", "unisex"],
       },
 
       fit: {
         type: String,
-        enum: ["slim", "regular", "oversize"]
+        enum: ["slim", "regular", "oversize"],
       },
 
       materials: [String],
@@ -142,9 +149,9 @@ const productSchema = new mongoose.Schema(
       attributes: [
         {
           k: String,
-          v: String
-        }
-      ]
+          v: String,
+        },
+      ],
     },
 
     /**
@@ -156,27 +163,27 @@ const productSchema = new mongoose.Schema(
       totalStock: { type: Number, default: 0 },
       soldCount: { type: Number, default: 0 },
       ratingAvg: { type: Number, default: 0 },
-      ratingCount: { type: Number, default: 0 }
+      ratingCount: { type: Number, default: 0 },
     },
 
     seo: {
       title: String,
       description: String,
-      keywords: [String]
+      keywords: [String],
     },
 
     status: {
       type: String,
       enum: ["draft", "review", "published", "archived"],
-      default: "draft"
+      default: "draft",
     },
 
     isDeleted: {
       type: Boolean,
-      default: false
-    }
+      default: false,
+    },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 /**
@@ -184,14 +191,14 @@ const productSchema = new mongoose.Schema(
  */
 productSchema.pre("save", function (next) {
   if (this.variants && this.variants.length > 0) {
-    const prices = this.variants.map(v => v.price);
+    const prices = this.variants.map((v) => v.price);
 
     this.statistics.minPrice = Math.min(...prices);
     this.statistics.maxPrice = Math.max(...prices);
 
     this.statistics.totalStock = this.variants.reduce(
       (sum, v) => sum + v.stock,
-      0
+      0,
     );
   }
 
@@ -205,5 +212,7 @@ productSchema.index({ slug: 1 });
 productSchema.index({ "variants.sku": 1 });
 productSchema.index({ status: 1 });
 productSchema.index({ isDeleted: 1 });
+// full text search for name/description
+productSchema.index({ name: "text", description: "text" });
 
 export default mongoose.model("Product", productSchema);

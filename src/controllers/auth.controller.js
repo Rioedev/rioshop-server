@@ -1,34 +1,22 @@
-import User from "../models/user.model.js";
-import generateToken from "../utils/generateToken.js";
+import { asyncHandler } from "../utils/asyncHandler.js";
+import ApiResponse from "../utils/ApiResponse.js";
+import authService from "../services/auth.service.js";
+import { SUCCESS_MESSAGES } from "../config/constants.js";
 
-export const register = async (req, res) => {
-  const { name, email, password } = req.body;
+/**
+ * Register new user
+ * POST /api/auth/register
+ */
+export const register = asyncHandler(async (req, res) => {
+  const user = await authService.register(req.body);
+  return ApiResponse.created(res, user, SUCCESS_MESSAGES.REGISTER_SUCCESS);
+});
 
-  const existUser = await User.findOne({ email });
-  if (existUser)
-    return res.status(400).json({ message: "Email already exists" });
-
-  const user = await User.create({ name, email, password });
-
-  res.status(201).json({
-    _id: user._id,
-    name: user.name,
-    email: user.email,
-    token: generateToken(user._id),
-  });
-};
-
-export const login = async (req, res) => {
-  const { email, password } = req.body;
-
-  const user = await User.findOne({ email });
-  if (!user || !(await user.comparePassword(password)))
-    return res.status(401).json({ message: "Invalid credentials" });
-
-  res.json({
-    _id: user._id,
-    name: user.name,
-    email: user.email,
-    token: generateToken(user._id),
-  });
-};
+/**
+ * Login user
+ * POST /api/auth/login
+ */
+export const login = asyncHandler(async (req, res) => {
+  const user = await authService.login(req.body);
+  return ApiResponse.success(res, user, SUCCESS_MESSAGES.LOGIN_SUCCESS);
+});

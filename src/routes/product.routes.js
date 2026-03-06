@@ -1,6 +1,4 @@
 import express from "express";
-const router = express.Router();
-
 import {
   createProduct,
   getAllProducts,
@@ -8,10 +6,17 @@ import {
   updateProduct,
   softDeleteProduct,
   restoreProduct,
-  hardDeleteProduct
+  hardDeleteProduct,
 } from "../controllers/product.controller.js";
-
+import { createValidationMiddleware } from "../middlewares/validation.middleware.js";
 import authMiddleware from "../middlewares/auth.middleware.js";
+import { upload as uploadMiddleware } from "../middlewares/upload.middleware.js";
+import {
+  createProductSchema,
+  updateProductSchema,
+} from "../validations/product.validation.js";
+
+const router = express.Router();
 
 /**
  * ===============================
@@ -19,12 +24,8 @@ import authMiddleware from "../middlewares/auth.middleware.js";
  * ===============================
  */
 
-// Lấy danh sách sản phẩm
+// Get all products with pagination
 router.get("/", getAllProducts);
-
-// Lấy chi tiết sản phẩm
-router.get("/:id", getProductById);
-
 
 /**
  * ===============================
@@ -32,19 +33,34 @@ router.get("/:id", getProductById);
  * ===============================
  */
 
-// Tạo sản phẩm
-router.post("/", authMiddleware, createProduct);
+// Create product
+router.post(
+  "/add",
+  // authMiddleware,
+  uploadMiddleware.array("image", 20),
+  createValidationMiddleware(createProductSchema),
+  createProduct,
+);
 
-// Cập nhật sản phẩm
-router.put("/:id", authMiddleware, updateProduct);
+// Update product
+router.put(
+  "/:id",
+  // authMiddleware,
+  uploadMiddleware.array("image", 20),
+  createValidationMiddleware(updateProductSchema),
+  updateProduct,
+);
 
-// Soft delete
-router.patch("/:id/soft-delete", authMiddleware, softDeleteProduct);
+// Soft delete product (mark as archived)
+router.patch("/:id/soft-delete", softDeleteProduct);
 
-// Restore
-router.patch("/:id/restore", authMiddleware, restoreProduct);
+// Restore product
+router.patch("/:id/restore", restoreProduct);
 
-// Hard delete
-router.delete("/:id", authMiddleware, hardDeleteProduct);
+// Hard delete product (permanently remove)
+router.delete("/:id", hardDeleteProduct);
+
+// Get product by ID (MUST BE LAST to avoid conflicts with /:id routes)
+router.get("/:id", getProductById);
 
 export default router;
