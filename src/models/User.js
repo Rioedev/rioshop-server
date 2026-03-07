@@ -87,9 +87,9 @@ const userSchema = new mongoose.Schema({
 });
 
 // Indexes
-userSchema.index({ email: 1 });
-userSchema.index({ phone: 1 }, { sparse: true });
-userSchema.index({ referralCode: 1 });
+// userSchema.index({ email: 1 });
+// userSchema.index({ phone: 1 }, { sparse: true });
+// userSchema.index({ referralCode: 1 });
 userSchema.index({ status: 1, createdAt: 1 });
 userSchema.index({ "loyalty.tier": 1 });
 userSchema.index({

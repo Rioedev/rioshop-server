@@ -7,11 +7,6 @@ import {
 import Product from "../models/Product.js";
 import productService from "../services/productService.js";
 
-/**
- * Example Controller - Product Controller
- * Demonstrates the pattern for implementing controllers
- */
-
 export const getAllProducts = asyncHandler(async (req, res) => {
   const { page, limit } = getPaginationParams(req.query.page, req.query.limit);
   const { category, gender, minPrice, maxPrice } = req.query;

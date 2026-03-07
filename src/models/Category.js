@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import mongoosePaginate from "mongoose-paginate-v2";
 
 const categorySchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -28,8 +29,9 @@ const categorySchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now },
 });
 
+categorySchema.plugin(mongoosePaginate);
 // Indexes
-categorySchema.index({ slug: 1 });
+// categorySchema.index({ slug: 1 });
 categorySchema.index({ parentId: 1, position: 1 });
 categorySchema.index({ path: 1 });
 categorySchema.index({ isActive: 1 });

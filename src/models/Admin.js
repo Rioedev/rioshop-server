@@ -27,6 +27,6 @@ const adminSchema = new mongoose.Schema({
 });
 
 // Indexes
-adminSchema.index({ email: 1 });
+// adminSchema.index({ email: 1 });
 
 export default mongoose.model("Admin", adminSchema);

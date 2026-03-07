@@ -90,6 +90,25 @@ app.use("/api/admins", adminRoutes);
 app.use("/api/flash-sales", flashSaleRoutes);
 app.use("/api/brand-configs", brandConfigRoutes);
 
+// Root endpoint
+app.get("/", (req, res) => {
+  res.json({
+    success: true,
+    message: "Welcome to Rioshop API",
+    version: "1.0.0",
+    endpoints: {
+      health: "/health",
+      products: "/api/products",
+      categories: "/api/categories",
+      users: "/api/users",
+      auth: "/api/auth",
+      carts: "/api/carts",
+      orders: "/api/orders",
+      payments: "/api/payments",
+    },
+  });
+});
+
 // Health check endpoint
 app.get("/health", (req, res) => {
   res.json({ status: "OK", timestamp: new Date().toISOString() });

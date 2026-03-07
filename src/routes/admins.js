@@ -1,27 +1,75 @@
 import express from "express";
-import { asyncHandler, sendSuccess } from "../utils/helpers.js";
+import {
+  adminLogin,
+  adminLogout,
+  getCurrentAdmin,
+  changePassword,
+  getAllAdmins,
+  getAdminById,
+  createAdmin,
+  updateAdmin,
+  deleteAdmin,
+} from "../controllers/adminAuthController.js";
 import { authenticateToken, authorizeRole } from "../middlewares/auth.js";
+import { validateRequest } from "../middlewares/validation.js";
+import {
+  adminLoginValidation,
+  adminChangePasswordValidation,
+  createAdminValidation,
+  updateAdminValidation,
+} from "../validations/admin.js";
 
 const router = express.Router();
 
-// Get all admins
+// Public routes
+// Admin login
+router.post("/login", validateRequest(adminLoginValidation), adminLogin);
+
+// Protected routes (requires authentication)
+// Get current admin
 router.get(
-  "/",
+  "/me",
   authenticateToken,
-  authorizeRole("superadmin"),
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, { admins: [] }, "Admins retrieved");
-  }),
+  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer"),
+  getCurrentAdmin,
 );
 
-// Create admin
+// Admin logout
+router.post(
+  "/logout",
+  authenticateToken,
+  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer"),
+  adminLogout,
+);
+
+// Change password
+router.post(
+  "/change-password",
+  authenticateToken,
+  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer"),
+  validateRequest(adminChangePasswordValidation),
+  changePassword,
+);
+
+// Superadmin only routes
+// Get all admins
+router.get("/", authenticateToken, authorizeRole("superadmin"), getAllAdmins);
+
+// Get admin by ID
+router.get(
+  "/:id",
+  authenticateToken,
+  authorizeRole("superadmin"),
+  getAdminById,
+);
+
+// Create new admin
 router.post(
   "/",
   authenticateToken,
   authorizeRole("superadmin"),
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 201, {}, "Admin created");
-  }),
+  validateRequest(createAdminValidation),
+  createAdmin,
 );
 
 // Update admin
@@ -29,9 +77,8 @@ router.put(
   "/:id",
   authenticateToken,
   authorizeRole("superadmin"),
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Admin updated");
-  }),
+  validateRequest(updateAdminValidation),
+  updateAdmin,
 );
 
 // Delete admin
@@ -39,9 +86,7 @@ router.delete(
   "/:id",
   authenticateToken,
   authorizeRole("superadmin"),
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Admin deleted");
-  }),
+  deleteAdmin,
 );
 
 export default router;

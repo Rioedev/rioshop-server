@@ -37,102 +37,105 @@ const mediaSchema = new mongoose.Schema(
   { _id: false },
 );
 
-const productSchema = new mongoose.Schema({
-  sku: { type: String, required: true, unique: true },
-  slug: { type: String, required: true, unique: true },
-  name: { type: String, required: true },
-  brand: { type: String, required: true },
-  description: String,
-  shortDescription: String,
-  category: {
-    _id: mongoose.Schema.Types.ObjectId,
-    name: String,
-    slug: String,
-    ancestors: [
-      {
-        _id: mongoose.Schema.Types.ObjectId,
-        name: String,
-        slug: String,
-      },
-    ],
-  },
-  tags: [String],
-  gender: { type: String, enum: ["men", "women", "unisex", "kids"] },
-  ageGroup: { type: String, enum: ["adult", "teen", "kids", "baby"] },
-  material: [String],
-  care: [String],
-  origin: String,
-  variants: [variantSchema],
-  media: [mediaSchema],
-  sizeChart: {
-    unit: String,
-    rows: [
-      {
-        size: String,
-        chest: Number,
-        length: Number,
-        shoulder: Number,
-      },
-    ],
-  },
-  pricing: {
-    basePrice: { type: Number, required: true },
-    salePrice: { type: Number, required: true },
-    currency: { type: String, default: "VND" },
-  },
-  inventorySummary: {
-    total: { type: Number, default: 0 },
-    available: { type: Number, default: 0 },
-    reserved: { type: Number, default: 0 },
-  },
-  ratings: {
-    avg: { type: Number, default: 0 },
-    count: { type: Number, default: 0 },
-    dist: {
-      5: { type: Number, default: 0 },
-      4: { type: Number, default: 0 },
-      3: { type: Number, default: 0 },
-      2: { type: Number, default: 0 },
-      1: { type: Number, default: 0 },
-    },
-  },
-  returnPolicy: {
-    days: Number,
-    conditions: String,
-    freeReturn: Boolean,
-  },
-  seoMeta: {
-    title: String,
+const productSchema = new mongoose.Schema(
+  {
+    sku: { type: String, required: true, unique: true },
+    slug: { type: String, required: true, unique: true },
+    name: { type: String, required: true },
+    brand: { type: String, required: true },
     description: String,
-    keywords: [String],
+    shortDescription: String,
+    category: {
+      _id: mongoose.Schema.Types.ObjectId,
+      name: String,
+      slug: String,
+      ancestors: [
+        {
+          _id: mongoose.Schema.Types.ObjectId,
+          name: String,
+          slug: String,
+        },
+      ],
+    },
+    tags: [String],
+    gender: { type: String, enum: ["men", "women", "unisex", "kids"] },
+    ageGroup: { type: String, enum: ["adult", "teen", "kids", "baby"] },
+    material: [String],
+    care: [String],
+    origin: String,
+    variants: [variantSchema],
+    media: [mediaSchema],
+    sizeChart: {
+      unit: String,
+      rows: [
+        {
+          size: String,
+          chest: Number,
+          length: Number,
+          shoulder: Number,
+        },
+      ],
+    },
+    pricing: {
+      basePrice: { type: Number, required: true },
+      salePrice: { type: Number, required: true },
+      currency: { type: String, default: "VND" },
+    },
+    inventorySummary: {
+      total: { type: Number, default: 0 },
+      available: { type: Number, default: 0 },
+      reserved: { type: Number, default: 0 },
+    },
+    ratings: {
+      avg: { type: Number, default: 0 },
+      count: { type: Number, default: 0 },
+      dist: {
+        5: { type: Number, default: 0 },
+        4: { type: Number, default: 0 },
+        3: { type: Number, default: 0 },
+        2: { type: Number, default: 0 },
+        1: { type: Number, default: 0 },
+      },
+    },
+    returnPolicy: {
+      days: Number,
+      conditions: String,
+      freeReturn: Boolean,
+    },
+    seoMeta: {
+      title: String,
+      description: String,
+      keywords: [String],
+    },
+    status: {
+      type: String,
+      enum: ["draft", "active", "archived", "out_of_stock"],
+      default: "draft",
+    },
+    isFeatured: Boolean,
+    isNew: Boolean,
+    isBestseller: Boolean,
+    weight: Number,
+    dimensions: {
+      lengthCm: Number,
+      widthCm: Number,
+      heightCm: Number,
+    },
+    totalSold: { type: Number, default: 0 },
+    viewCount: { type: Number, default: 0 },
+    createdAt: { type: Date, default: Date.now },
+    updatedAt: { type: Date, default: Date.now },
+    publishedAt: Date,
   },
-  status: {
-    type: String,
-    enum: ["draft", "active", "archived", "out_of_stock"],
-    default: "draft",
-  },
-  isFeatured: Boolean,
-  isNew: Boolean,
-  isBestseller: Boolean,
-  weight: Number,
-  dimensions: {
-    lengthCm: Number,
-    widthCm: Number,
-    heightCm: Number,
-  },
-  totalSold: { type: Number, default: 0 },
-  viewCount: { type: Number, default: 0 },
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: { type: Date, default: Date.now },
-  publishedAt: Date,
-});
+  { suppressReservedKeysWarning: true },
+);
 
 productSchema.plugin(mongoosePaginate);
 
 // Indexes
-productSchema.index({ slug: 1 });
-productSchema.index({ sku: 1 });
-productSchema.index({ "variants.sku": 1 });
+// productSchema.index({ slug: 1 });
+// productSchema.index({ sku: 1 });
+// productSchema.index({ "variants.sku": 1 });
 productSchema.index({ "category._id": 1, status: 1 });
 productSchema.index({ status: 1, isFeatured: 1 });
 productSchema.index({ "ratings.avg": -1, totalSold: -1 });
