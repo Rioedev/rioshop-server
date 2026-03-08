@@ -1,30 +1,29 @@
 import express from "express";
-import { asyncHandler, sendSuccess } from "../utils/helpers.js";
+import { validateRequest } from "../middlewares/validation.js";
+import {
+  getAnalyticsEvents,
+  trackAnalyticsEvent,
+  getAnalyticsDashboard,
+} from "../controllers/analyticsController.js";
+import {
+  analyticsEventsValidation,
+  analyticsTrackValidation,
+  analyticsDashboardValidation,
+} from "../validations/analytics.js";
 
 const router = express.Router();
 
 // Get analytics events
-router.get(
-  "/events",
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, { events: [] }, "Analytics events retrieved");
-  }),
-);
+router.get("/events", validateRequest(analyticsEventsValidation), getAnalyticsEvents);
 
 // Track event
-router.post(
-  "/track",
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 201, {}, "Event tracked");
-  }),
-);
+router.post("/track", validateRequest(analyticsTrackValidation), trackAnalyticsEvent);
 
 // Get dashboard metrics
 router.get(
   "/dashboard",
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Dashboard metrics retrieved");
-  }),
+  validateRequest(analyticsDashboardValidation),
+  getAnalyticsDashboard,
 );
 
 export default router;

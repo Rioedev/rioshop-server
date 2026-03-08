@@ -1,10 +1,15 @@
 import express from "express";
-import {
-  asyncHandler,
-  sendSuccess,
-  getPaginationParams,
-} from "../utils/helpers.js";
 import { authenticateToken } from "../middlewares/auth.js";
+import { validateRequest } from "../middlewares/validation.js";
+import {
+  getNotifications,
+  markAsRead,
+  deleteNotification,
+} from "../controllers/notificationController.js";
+import {
+  getNotificationsValidation,
+  notificationIdValidation,
+} from "../validations/notifications.js";
 
 const router = express.Router();
 
@@ -12,36 +17,24 @@ const router = express.Router();
 router.get(
   "/",
   authenticateToken,
-  asyncHandler(async (req, res) => {
-    const { page, limit } = getPaginationParams(
-      req.query.page,
-      req.query.limit,
-    );
-    sendSuccess(
-      res,
-      200,
-      { notifications: [], pagination: { page, limit } },
-      "Notifications retrieved",
-    );
-  }),
+  validateRequest(getNotificationsValidation),
+  getNotifications,
 );
 
 // Mark as read
 router.put(
   "/:id/read",
   authenticateToken,
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Notification marked as read");
-  }),
+  validateRequest(notificationIdValidation),
+  markAsRead,
 );
 
 // Delete notification
 router.delete(
   "/:id",
   authenticateToken,
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Notification deleted");
-  }),
+  validateRequest(notificationIdValidation),
+  deleteNotification,
 );
 
 export default router;

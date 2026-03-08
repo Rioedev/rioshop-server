@@ -1,34 +1,35 @@
 import express from "express";
-import { asyncHandler, sendSuccess } from "../utils/helpers.js";
 import { authenticateToken } from "../middlewares/auth.js";
+import { validateRequest } from "../middlewares/validation.js";
+import {
+  getWishlist,
+  addToWishlist,
+  removeFromWishlist,
+} from "../controllers/wishlistController.js";
+import {
+  addWishlistItemValidation,
+  removeWishlistItemValidation,
+} from "../validations/wishlists.js";
 
 const router = express.Router();
 
 // Get wishlist
-router.get(
-  "/",
-  authenticateToken,
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, { items: [] }, "Wishlist retrieved");
-  }),
-);
+router.get("/", authenticateToken, getWishlist);
 
 // Add to wishlist
 router.post(
   "/add",
   authenticateToken,
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 201, {}, "Item added to wishlist");
-  }),
+  validateRequest(addWishlistItemValidation),
+  addToWishlist,
 );
 
 // Remove from wishlist
 router.delete(
   "/:productId",
   authenticateToken,
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Item removed from wishlist");
-  }),
+  validateRequest(removeWishlistItemValidation),
+  removeFromWishlist,
 );
 
 export default router;

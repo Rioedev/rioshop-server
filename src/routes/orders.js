@@ -1,65 +1,46 @@
 import express from "express";
-import {
-  asyncHandler,
-  sendSuccess,
-  getPaginationParams,
-} from "../utils/helpers.js";
 import { authenticateToken } from "../middlewares/auth.js";
+import { validateRequest } from "../middlewares/validation.js";
+import {
+  getOrders,
+  getOrderById,
+  createOrder,
+  updateOrderStatus,
+  cancelOrder,
+} from "../controllers/orderController.js";
+import {
+  getOrdersValidation,
+  orderIdValidation,
+  createOrderValidation,
+  updateOrderStatusValidation,
+  cancelOrderValidation,
+} from "../validations/orders.js";
 
 const router = express.Router();
 
 // Get all orders
-router.get(
-  "/",
-  authenticateToken,
-  asyncHandler(async (req, res) => {
-    const { page, limit } = getPaginationParams(
-      req.query.page,
-      req.query.limit,
-    );
-    sendSuccess(
-      res,
-      200,
-      { orders: [], pagination: { page, limit } },
-      "Orders retrieved",
-    );
-  }),
-);
+router.get("/", authenticateToken, validateRequest(getOrdersValidation), getOrders);
 
 // Get order by ID
-router.get(
-  "/:id",
-  authenticateToken,
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Order retrieved");
-  }),
-);
+router.get("/:id", authenticateToken, validateRequest(orderIdValidation), getOrderById);
 
 // Create order
-router.post(
-  "/",
-  authenticateToken,
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 201, {}, "Order created successfully");
-  }),
-);
+router.post("/", authenticateToken, validateRequest(createOrderValidation), createOrder);
 
 // Update order status
 router.patch(
   "/:id/status",
   authenticateToken,
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Order status updated");
-  }),
+  validateRequest(updateOrderStatusValidation),
+  updateOrderStatus,
 );
 
 // Cancel order
 router.post(
   "/:id/cancel",
   authenticateToken,
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Order cancelled");
-  }),
+  validateRequest(cancelOrderValidation),
+  cancelOrder,
 );
 
 export default router;

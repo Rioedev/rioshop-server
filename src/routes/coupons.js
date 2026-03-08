@@ -1,30 +1,25 @@
 import express from "express";
-import { asyncHandler, sendSuccess } from "../utils/helpers.js";
+import { validateRequest } from "../middlewares/validation.js";
+import {
+  validateCoupon,
+  getActiveCoupons,
+  getCouponByCode,
+} from "../controllers/couponController.js";
+import {
+  validateCouponValidation,
+  getActiveCouponsValidation,
+  getCouponByCodeValidation,
+} from "../validations/coupons.js";
 
 const router = express.Router();
 
-// Get coupon
-router.get(
-  "/:code",
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Coupon retrieved");
-  }),
-);
-
 // Validate coupon
-router.post(
-  "/validate",
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Coupon validated");
-  }),
-);
+router.post("/validate", validateRequest(validateCouponValidation), validateCoupon);
 
 // Get active coupons
-router.get(
-  "/",
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, { coupons: [] }, "Coupons retrieved");
-  }),
-);
+router.get("/", validateRequest(getActiveCouponsValidation), getActiveCoupons);
+
+// Get coupon
+router.get("/:code", validateRequest(getCouponByCodeValidation), getCouponByCode);
 
 export default router;

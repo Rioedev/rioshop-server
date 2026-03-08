@@ -1,43 +1,25 @@
 import express from "express";
+import { validateRequest } from "../middlewares/validation.js";
 import {
-  asyncHandler,
-  sendSuccess,
-  getPaginationParams,
-} from "../utils/helpers.js";
+  getAllFlashSales,
+  getFlashSaleById,
+  createFlashSale,
+} from "../controllers/flashSaleController.js";
+import {
+  getFlashSalesValidation,
+  flashSaleIdValidation,
+  createFlashSaleValidation,
+} from "../validations/flashSales.js";
 
 const router = express.Router();
 
 // Get all flash sales
-router.get(
-  "/",
-  asyncHandler(async (req, res) => {
-    const { page, limit } = getPaginationParams(
-      req.query.page,
-      req.query.limit,
-    );
-    sendSuccess(
-      res,
-      200,
-      { sales: [], pagination: { page, limit } },
-      "Flash sales retrieved",
-    );
-  }),
-);
+router.get("/", validateRequest(getFlashSalesValidation), getAllFlashSales);
 
 // Get flash sale details
-router.get(
-  "/:id",
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Flash sale retrieved");
-  }),
-);
+router.get("/:id", validateRequest(flashSaleIdValidation), getFlashSaleById);
 
 // Create flash sale
-router.post(
-  "/",
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 201, {}, "Flash sale created");
-  }),
-);
+router.post("/", validateRequest(createFlashSaleValidation), createFlashSale);
 
 export default router;

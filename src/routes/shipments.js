@@ -1,30 +1,29 @@
 import express from "express";
-import { asyncHandler, sendSuccess } from "../utils/helpers.js";
+import { validateRequest } from "../middlewares/validation.js";
+import {
+  getShipment,
+  updateTracking,
+  shipmentWebhook,
+} from "../controllers/shipmentController.js";
+import {
+  shipmentIdValidation,
+  updateTrackingValidation,
+  shipmentWebhookValidation,
+} from "../validations/shipments.js";
 
 const router = express.Router();
 
 // Get shipment
-router.get(
-  "/:id",
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Shipment retrieved");
-  }),
-);
+router.get("/:id", validateRequest(shipmentIdValidation), getShipment);
 
 // Update tracking
-router.put(
-  "/:id/tracking",
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Tracking updated");
-  }),
-);
+router.put("/:id/tracking", validateRequest(updateTrackingValidation), updateTracking);
 
 // Shipment webhook
 router.post(
   "/webhook/:carrier",
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Webhook processed");
-  }),
+  validateRequest(shipmentWebhookValidation),
+  shipmentWebhook,
 );
 
 export default router;

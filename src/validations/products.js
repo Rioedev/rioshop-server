@@ -34,5 +34,30 @@ export const paginationValidation = Joi.object({
   query: Joi.object({
     page: Joi.number().integer().min(1),
     limit: Joi.number().integer().min(1).max(100),
+    category: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
+    gender: Joi.string().valid("men", "women", "unisex", "kids").optional(),
+    minPrice: Joi.number().min(0).optional(),
+    maxPrice: Joi.number().min(0).optional(),
+    sort: Joi.string().optional(),
   }),
+});
+
+export const searchProductsValidation = Joi.object({
+  query: Joi.object({
+    q: Joi.string().trim().min(1).required(),
+    page: Joi.number().integer().min(1).optional(),
+    limit: Joi.number().integer().min(1).max(100).optional(),
+  }).required(),
+});
+
+export const productSlugValidation = Joi.object({
+  params: Joi.object({
+    slug: Joi.string().trim().min(1).required(),
+  }).required(),
+});
+
+export const relatedProductsValidation = Joi.object({
+  params: Joi.object({
+    id: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required(),
+  }).required(),
 });

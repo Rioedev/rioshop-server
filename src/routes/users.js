@@ -1,43 +1,36 @@
 import express from "express";
-import { asyncHandler, sendSuccess } from "../utils/helpers.js";
 import { authenticateToken } from "../middlewares/auth.js";
+import { validateRequest } from "../middlewares/validation.js";
+import {
+  getUserProfile,
+  updateUserProfile,
+  getUserOrders,
+  getUserReviews,
+} from "../controllers/userController.js";
+import { updateProfileValidation, userListValidation } from "../validations/users.js";
 
 const router = express.Router();
 
 // Get user profile
-router.get(
-  "/profile",
-  authenticateToken,
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, { userId: req.user.id }, "Profile retrieved");
-  }),
-);
+router.get("/profile", authenticateToken, getUserProfile);
 
 // Update user profile
 router.put(
   "/profile",
   authenticateToken,
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, {}, "Profile updated successfully");
-  }),
+  validateRequest(updateProfileValidation),
+  updateUserProfile,
 );
 
 // Get user orders
-router.get(
-  "/orders",
-  authenticateToken,
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, [], "Orders retrieved");
-  }),
-);
+router.get("/orders", authenticateToken, validateRequest(userListValidation), getUserOrders);
 
 // Get user reviews
 router.get(
   "/reviews",
   authenticateToken,
-  asyncHandler(async (req, res) => {
-    sendSuccess(res, 200, [], "Reviews retrieved");
-  }),
+  validateRequest(userListValidation),
+  getUserReviews,
 );
 
 export default router;

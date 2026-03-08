@@ -9,7 +9,7 @@ import productService from "../services/productService.js";
 
 export const getAllProducts = asyncHandler(async (req, res) => {
   const { page, limit } = getPaginationParams(req.query.page, req.query.limit);
-  const { category, gender, minPrice, maxPrice } = req.query;
+  const { category, gender, minPrice, maxPrice, sort } = req.query;
 
   const filters = { status: "active" };
   if (category) filters["category._id"] = category;
@@ -23,7 +23,7 @@ export const getAllProducts = asyncHandler(async (req, res) => {
   const products = await productService.getAllProducts(filters, {
     page,
     limit,
-    sort: { createdAt: -1 },
+    sort: sort ? JSON.parse(sort) : { createdAt: -1 },
   });
 
   sendSuccess(res, 200, products, "Products fetched successfully");
