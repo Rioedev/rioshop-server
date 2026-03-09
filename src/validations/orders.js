@@ -34,7 +34,7 @@ export const createOrderValidation = Joi.object({
           variantSku: Joi.string().trim().required(),
           productName: Joi.string().trim().required(),
           variantLabel: Joi.string().trim().allow("").optional(),
-          image: Joi.string().uri().allow("").required(),
+          image: Joi.string().uri().required(),
           unitPrice: Joi.number().min(0).required(),
           quantity: Joi.number().integer().min(1).required(),
           totalPrice: Joi.number().min(0).optional(),

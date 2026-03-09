@@ -19,7 +19,7 @@ const analyticsEventSchema = new mongoose.Schema({
   orderId: { type: mongoose.Schema.Types.ObjectId, ref: "Order" },
   properties: mongoose.Schema.Types.Mixed,
   device: {
-    type: String,
+    type: { type: String },
     os: String,
     browser: String,
   },

@@ -9,7 +9,7 @@ const paymentSchema = new mongoose.Schema({
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   method: {
     type: String,
-    enum: ["momo", "vnpay", "zalopay", "cod", "bank_transfer"],
+    enum: ["momo", "vnpay", "zalopay", "cod", "bank_transfer", "card"],
     required: true,
   },
   gateway: String,

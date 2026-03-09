@@ -46,7 +46,7 @@ export class ReviewService {
     }
   }
 
-  async createReview(userId, data) {
+  async createReview(userId, data, isAdmin = false) {
     try {
       const existing = await Review.findOne({
         userId,
@@ -61,7 +61,10 @@ export class ReviewService {
       const review = new Review({
         ...data,
         userId,
-        status: data.status || "pending",
+        status:
+          isAdmin && ["pending", "approved", "rejected"].includes(data.status)
+            ? data.status
+            : "pending",
         createdAt: new Date(),
         updatedAt: new Date(),
       });
@@ -92,17 +95,19 @@ export class ReviewService {
       const previousStatus = review.status;
       const previousRating = review.rating;
 
-      const allowedFields = [
-        "rating",
-        "title",
-        "body",
-        "media",
-        "fit",
-        "quality",
-        "status",
-        "adminReply",
-        "reported",
-      ];
+      const allowedFields = isAdmin
+        ? [
+            "rating",
+            "title",
+            "body",
+            "media",
+            "fit",
+            "quality",
+            "status",
+            "adminReply",
+            "reported",
+          ]
+        : ["rating", "title", "body", "media", "fit", "quality"];
 
       for (const field of allowedFields) {
         if (data[field] !== undefined) {

@@ -2,6 +2,7 @@ import User from "../models/User.js";
 import Admin from "../models/Admin.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import { generateToken } from "../middlewares/auth.js";
 import { redisClient } from "../config/redis.js";
 import { AppError } from "../utils/helpers.js";
@@ -242,7 +243,7 @@ export class AuthService {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       return decoded;
     } catch (error) {
-      throw new Error("Invalid token");
+      throw new AppError("Invalid token", 401);
     }
   }
 
@@ -281,11 +282,11 @@ export class AuthService {
       const user = await User.findById(userId);
 
       if (!user) {
-        throw new Error("User not found");
+        throw new AppError("User not found", 404);
       }
 
       if (user.status !== "active") {
-        throw new Error("Account is not active");
+        throw new AppError("Account is not active", 403);
       }
 
       const token = generateToken({
@@ -308,7 +309,7 @@ export class AuthService {
       const user = await Model.findById(userId);
 
       if (!user) {
-        throw new Error("User not found");
+        throw new AppError("User not found", 404);
       }
 
       // Verify old password
@@ -318,7 +319,7 @@ export class AuthService {
       );
 
       if (!isPasswordValid) {
-        throw new Error("Current password is incorrect");
+        throw new AppError("Current password is incorrect", 400);
       }
 
       // Hash new password
@@ -345,7 +346,7 @@ export class AuthService {
       }
 
       // Generate reset token
-      const resetToken = require("crypto").randomBytes(32).toString("hex");
+      const resetToken = crypto.randomBytes(32).toString("hex");
       const resetTokenHash = await bcrypt.hash(resetToken, 10);
 
       // Store in cache with 1 hour expiry
@@ -371,18 +372,21 @@ export class AuthService {
       const storedHash = await redisClient.get(resetKey);
 
       if (!storedHash) {
-        throw new Error("Reset token expired or invalid");
+        throw new AppError("Reset token expired or invalid", 400);
       }
 
       // Verify reset token
       const isValid = await bcrypt.compare(resetToken, storedHash);
 
       if (!isValid) {
-        throw new Error("Invalid reset token");
+        throw new AppError("Invalid reset token", 400);
       }
 
       // Update password
       const user = await User.findById(userId);
+      if (!user) {
+        throw new AppError("User not found", 404);
+      }
       const salt = await bcrypt.genSalt(10);
       user.passwordHash = await bcrypt.hash(newPassword, salt);
       await user.save();

@@ -18,7 +18,11 @@ export const getReviewsForProduct = asyncHandler(async (req, res) => {
 });
 
 export const createReview = asyncHandler(async (req, res) => {
-  const review = await reviewService.createReview(req.user.userId, req.body);
+  const review = await reviewService.createReview(
+    req.user.userId,
+    req.body,
+    Boolean(req.user.adminId),
+  );
   sendSuccess(res, 201, review, "Review created");
 });
 

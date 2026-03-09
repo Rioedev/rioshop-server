@@ -61,13 +61,17 @@ app.use(rateLimiter);
 const initializeApp = async () => {
   try {
     await connectDB();
-    console.log("✅ MongoDB connected");
-
-    await redisClient.connect();
-    console.log("✅ Redis connected");
+    console.log("MongoDB connected");
   } catch (error) {
-    console.error("❌ Database connection failed:", error);
+    console.error("Database connection failed:", error);
     process.exit(1);
+  }
+
+  try {
+    await redisClient.connect();
+    console.log("Redis connected");
+  } catch (error) {
+    console.error("Redis connection failed, running without Redis:", error);
   }
 };
 
@@ -146,3 +150,4 @@ startServer().catch((error) => {
 });
 
 export default app;
+

@@ -1,9 +1,10 @@
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
+import { redisClient } from "../config/redis.js";
 
 dotenv.config();
 
-export const authenticateToken = (req, res, next) => {
+export const authenticateToken = async (req, res, next) => {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
 
@@ -16,6 +17,25 @@ export const authenticateToken = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // Optional blacklist check (gracefully skipped when Redis is unavailable)
+    const principalId = decoded.userId || decoded.adminId;
+    if (principalId && redisClient?.isOpen) {
+      try {
+        const blacklistKey = `blacklist:${principalId}`;
+        const blacklistedToken = await redisClient.get(blacklistKey);
+
+        if (blacklistedToken === token) {
+          return res.status(403).json({
+            success: false,
+            message: "Token khÃ´ng há»£p lá»‡ hoáº·c háº¿t háº¡n",
+          });
+        }
+      } catch (error) {
+        // Ignore Redis errors to avoid blocking authentication flow.
+      }
+    }
+
     req.user = decoded;
     next();
   } catch (error) {

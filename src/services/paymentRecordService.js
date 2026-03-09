@@ -62,7 +62,11 @@ export class PaymentRecordService {
             payment._id.toString(),
             resolvedAmount,
           );
-        } else if (resolvedMethod === "cod" || resolvedMethod === "bank_transfer") {
+        } else if (
+          resolvedMethod === "cod" ||
+          resolvedMethod === "bank_transfer" ||
+          resolvedMethod === "card"
+        ) {
           gatewayResponse = {
             message: "No online gateway required",
             method: resolvedMethod,
@@ -270,6 +274,7 @@ export class PaymentRecordService {
       zalopay: "zalopay",
       cod: "cod",
       bank_transfer: "bank_transfer",
+      card: "card",
     };
 
     return map[method] || method || "unknown";

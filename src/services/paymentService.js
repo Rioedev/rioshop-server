@@ -13,8 +13,8 @@ export class MomoPaymentService {
           orderId,
           amount,
           orderInfo: `Payment for order ${orderId}`,
-          returnUrl: `${process.env.SOCKET_SERVER_URL}/api/v1/payments/momo/callback`,
-          notifyUrl: `${process.env.SOCKET_SERVER_URL}/api/v1/payments/momo/webhook`,
+          returnUrl: `${process.env.SOCKET_SERVER_URL}/api/payments/webhook/momo`,
+          notifyUrl: `${process.env.SOCKET_SERVER_URL}/api/payments/webhook/momo`,
           requestType: "captureWallet",
           extraData: "",
         },
@@ -92,8 +92,8 @@ export class ZaloPaymentService {
             },
           ]),
           description: `Payment for order ${orderId}`,
-          callback_url: `${process.env.SOCKET_SERVER_URL}/api/v1/payments/zalopay/webhook`,
-          return_url: `${process.env.SOCKET_SERVER_URL}/api/v1/payments/zalopay/callback`,
+          callback_url: `${process.env.SOCKET_SERVER_URL}/api/payments/webhook/zalopay`,
+          return_url: `${process.env.SOCKET_SERVER_URL}/api/payments/webhook/zalopay`,
         },
       );
 
