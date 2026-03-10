@@ -77,7 +77,7 @@ const userSchema = new mongoose.Schema({
   },
   lastLoginAt: Date,
   loginCount: { type: Number, default: 0 },
-  referralCode: { type: String, unique: true },
+  referralCode: { type: String, trim: true },
   referredBy: mongoose.Schema.Types.ObjectId,
   totalOrders: { type: Number, default: 0 },
   totalSpend: { type: Number, default: 0 },
@@ -89,7 +89,16 @@ const userSchema = new mongoose.Schema({
 // Indexes
 // userSchema.index({ email: 1 });
 // userSchema.index({ phone: 1 }, { sparse: true });
-// userSchema.index({ referralCode: 1 });
+// Only enforce uniqueness when referralCode is a non-empty string.
+userSchema.index(
+  { referralCode: 1 },
+  {
+    unique: true,
+    partialFilterExpression: {
+      referralCode: { $exists: true, $type: "string", $ne: "" },
+    },
+  },
+);
 userSchema.index({ status: 1, createdAt: 1 });
 userSchema.index({ "loyalty.tier": 1 });
 userSchema.index({

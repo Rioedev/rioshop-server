@@ -45,6 +45,4 @@ const brandConfigSchema = new mongoose.Schema({
 });
 
 // Indexes
-brandConfigSchema.index({ brandKey: 1 });
-
 export default mongoose.model("BrandConfig", brandConfigSchema);
