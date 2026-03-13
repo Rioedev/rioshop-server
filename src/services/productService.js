@@ -7,13 +7,17 @@ export class ProductService {
     const { page = 1, limit = 10, sort = { createdAt: -1 } } = options;
 
     try {
+      const queryFilters = {
+        deletedAt: null,
+        ...filters,
+      };
+
       const query = Product.paginate(
-        { status: "active", ...filters },
+        queryFilters,
         {
           page,
           limit,
           sort,
-          select: "-description",
         },
       );
 
@@ -34,7 +38,11 @@ export class ProductService {
       }
 
       // Get from database
-      const product = await Product.findOne({ slug, status: "active" });
+      const product = await Product.findOne({
+        slug,
+        status: "active",
+        deletedAt: null,
+      });
 
       if (!product) {
         return null;
@@ -55,7 +63,7 @@ export class ProductService {
 
   async getProductById(id) {
     try {
-      const product = await Product.findById(id);
+      const product = await Product.findOne({ _id: id, deletedAt: null });
       return product;
     } catch (error) {
       throw error;
@@ -74,11 +82,28 @@ export class ProductService {
 
   async updateProduct(id, data) {
     try {
-      const product = await Product.findByIdAndUpdate(id, data, { new: true });
+      const existingProduct = await Product.findOne({ _id: id, deletedAt: null });
+      if (!existingProduct) {
+        return null;
+      }
+
+      const product = await Product.findOneAndUpdate(
+        { _id: id, deletedAt: null },
+        {
+          ...data,
+          updatedAt: new Date(),
+        },
+        { new: true },
+      );
+
+      if (!product) {
+        return null;
+      }
 
       // Invalidate cache
-      const cacheKey = `${CACHE_KEYS.PRODUCT}${product.slug}`;
-      await redisClient.del(cacheKey);
+      const currentSlugCacheKey = `${CACHE_KEYS.PRODUCT}${product.slug}`;
+      const previousSlugCacheKey = `${CACHE_KEYS.PRODUCT}${existingProduct.slug}`;
+      await redisClient.del([currentSlugCacheKey, previousSlugCacheKey]);
 
       return product;
     } catch (error) {
@@ -88,7 +113,22 @@ export class ProductService {
 
   async deleteProduct(id) {
     try {
-      const product = await Product.findByIdAndDelete(id);
+      const product = await Product.findOneAndUpdate(
+        { _id: id, deletedAt: null },
+        {
+          deletedAt: new Date(),
+          updatedAt: new Date(),
+        },
+        { new: true },
+      );
+
+      if (!product) {
+        return null;
+      }
+
+      const cacheKey = `${CACHE_KEYS.PRODUCT}${product.slug}`;
+      await redisClient.del(cacheKey);
+
       return product;
     } catch (error) {
       throw error;
@@ -100,9 +140,16 @@ export class ProductService {
       const { page = 1, limit = 10 } = options;
 
       const searchQuery = {
-        $text: { $search: query },
-        status: "active",
+        deletedAt: null,
         ...filters,
+        $or: [
+          { name: { $regex: query, $options: "i" } },
+          { description: { $regex: query, $options: "i" } },
+          { sku: { $regex: query, $options: "i" } },
+          { slug: { $regex: query, $options: "i" } },
+          { brand: { $regex: query, $options: "i" } },
+          { "variants.sku": { $regex: query, $options: "i" } },
+        ],
       };
 
       const products = await Product.paginate(searchQuery, { page, limit });
@@ -114,12 +161,16 @@ export class ProductService {
 
   async getRelatedProducts(productId, limit = 6) {
     try {
-      const product = await Product.findById(productId);
+      const product = await Product.findOne({
+        _id: productId,
+        deletedAt: null,
+      });
       if (!product) return [];
 
       const relatedProducts = await Product.find({
         _id: { $ne: productId },
         status: "active",
+        deletedAt: null,
         tags: { $in: product.tags },
       }).limit(limit);
 
@@ -131,7 +182,10 @@ export class ProductService {
 
   async updateInventorySummary(productId) {
     try {
-      const product = await Product.findById(productId);
+      const product = await Product.findOne({
+        _id: productId,
+        deletedAt: null,
+      });
       // Update inventory summary logic here
       return product;
     } catch (error) {

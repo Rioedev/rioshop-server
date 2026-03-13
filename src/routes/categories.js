@@ -1,4 +1,5 @@
 import express from "express";
+import multer from "multer";
 import {
   getAllCategories,
   getCategoryTree,
@@ -10,6 +11,7 @@ import {
   getSubcategories,
   searchCategories,
   getCategoryStats,
+  uploadCategoryImage,
 } from "../controllers/categoryController.js";
 import { validateRequest } from "../middlewares/validation.js";
 import {
@@ -23,6 +25,12 @@ import {
 } from "../validations/categories.js";
 
 const router = express.Router();
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+});
 
 // Public routes
 // Get all categories with pagination
@@ -40,6 +48,9 @@ router.get(
 
 // Get category statistics
 router.get("/stats", getCategoryStats);
+
+// Upload category image
+router.post("/upload-image", upload.single("file"), uploadCategoryImage);
 
 // Get subcategories of a category
 router.get(

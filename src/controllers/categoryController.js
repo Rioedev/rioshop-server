@@ -7,6 +7,7 @@ import {
 import categoryService from "../services/categoryService.js";
 import Category from "../models/Category.js";
 import slugify from "slugify";
+import { uploadToCloudinary } from "../utils/cloudinary.js";
 
 /**
  * GET /api/categories
@@ -14,11 +15,12 @@ import slugify from "slugify";
  */
 export const getAllCategories = asyncHandler(async (req, res) => {
   const { page, limit } = getPaginationParams(req.query.page, req.query.limit);
-  const { parentId, level } = req.query;
+  const { parentId, level, isActive } = req.query;
 
   const filters = {};
   if (parentId) filters.parentId = parentId;
   if (level !== undefined) filters.level = parseInt(level);
+  if (isActive !== undefined) filters.isActive = isActive === "true";
 
   const categories = await categoryService.getAllCategories(filters, {
     page,
@@ -93,6 +95,7 @@ export const createCategory = asyncHandler(async (req, res) => {
   // Check if category with same name exists
   const existing = await Category.findOne({
     slug: slugify(name, { lower: true }),
+    deletedAt: null,
   });
   if (existing) {
     return sendError(res, 409, "Category with this name already exists");
@@ -144,6 +147,7 @@ export const updateCategory = asyncHandler(async (req, res) => {
     const existing = await Category.findOne({
       slug: newSlug,
       _id: { $ne: id },
+      deletedAt: null,
     });
     if (existing) {
       return sendError(res, 409, "Category with this name already exists");
@@ -185,7 +189,10 @@ export const deleteCategory = asyncHandler(async (req, res) => {
   }
 
   // Check if category has subcategories
-  const hasChildren = await Category.countDocuments({ parentId: id });
+  const hasChildren = await Category.countDocuments({
+    parentId: id,
+    deletedAt: null,
+  });
   if (hasChildren > 0) {
     return sendError(
       res,
@@ -223,12 +230,14 @@ export const getSubcategories = asyncHandler(async (req, res) => {
  * Search categories
  */
 export const searchCategories = asyncHandler(async (req, res) => {
-  const { q, page, limit } = req.query;
+  const { q, page, limit, isActive } = req.query;
   const { page: pageNum, limit: limitNum } = getPaginationParams(page, limit);
+  const filters = {};
+  if (isActive !== undefined) filters.isActive = isActive === "true";
 
   const results = await categoryService.searchCategories(
     q,
-    {},
+    filters,
     {
       page: pageNum,
       limit: limitNum,
@@ -246,4 +255,32 @@ export const getCategoryStats = asyncHandler(async (req, res) => {
   const stats = await categoryService.getCategoryStats();
 
   sendSuccess(res, 200, stats, "Category statistics retrieved successfully");
+});
+
+/**
+ * POST /api/categories/upload-image
+ * Upload category image
+ */
+export const uploadCategoryImage = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    return sendError(res, 400, "File image is required");
+  }
+
+  if (!req.file.mimetype?.startsWith("image/")) {
+    return sendError(res, 400, "Only image files are allowed");
+  }
+
+  const base64 = req.file.buffer.toString("base64");
+  const dataUri = `data:${req.file.mimetype};base64,${base64}`;
+  const uploadResult = await uploadToCloudinary(dataUri, "rioshop/categories");
+
+  sendSuccess(
+    res,
+    200,
+    {
+      url: uploadResult.secure_url,
+      publicId: uploadResult.public_id,
+    },
+    "Image uploaded successfully",
+  );
 });

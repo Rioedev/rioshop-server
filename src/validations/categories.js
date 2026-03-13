@@ -92,6 +92,7 @@ export const searchCategoryValidation = Joi.object({
     }),
     page: Joi.number().integer().min(1).optional(),
     limit: Joi.number().integer().min(1).max(100).optional(),
+    isActive: Joi.boolean().optional(),
   }).required(),
 });
 
@@ -111,6 +112,7 @@ export const paginationValidation = Joi.object({
     level: Joi.number().integer().min(0).optional().messages({
       "number.base": "Level must be a number",
     }),
+    isActive: Joi.boolean().optional(),
   }).required(),
 });
 

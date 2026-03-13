@@ -4,20 +4,25 @@ import {
   sendError,
   getPaginationParams,
 } from "../utils/helpers.js";
-import Product from "../models/Product.js";
 import productService from "../services/productService.js";
+import { uploadToCloudinary } from "../utils/cloudinary.js";
 
 export const getAllProducts = asyncHandler(async (req, res) => {
   const { page, limit } = getPaginationParams(req.query.page, req.query.limit);
-  const { category, gender, minPrice, maxPrice, sort } = req.query;
+  const { category, gender, minPrice, maxPrice, sort, status = "active" } = req.query;
 
-  const filters = { status: "active" };
+  const filters = {};
+  if (status && status !== "all") filters.status = status;
   if (category) filters["category._id"] = category;
   if (gender) filters.gender = gender;
-  if (minPrice || maxPrice) {
+  if (minPrice !== undefined || maxPrice !== undefined) {
     filters["pricing.salePrice"] = {};
-    if (minPrice) filters["pricing.salePrice"].$gte = parseInt(minPrice);
-    if (maxPrice) filters["pricing.salePrice"].$lte = parseInt(maxPrice);
+    if (minPrice !== undefined) {
+      filters["pricing.salePrice"].$gte = Number(minPrice);
+    }
+    if (maxPrice !== undefined) {
+      filters["pricing.salePrice"].$lte = Number(maxPrice);
+    }
   }
 
   const products = await productService.getAllProducts(filters, {
@@ -45,16 +50,19 @@ export const getProductBySlug = asyncHandler(async (req, res) => {
 });
 
 export const searchProducts = asyncHandler(async (req, res) => {
-  const { q, page, limit } = req.query;
+  const { q, page, limit, status = "active" } = req.query;
 
   if (!q || q.trim().length === 0) {
     return sendError(res, 400, "Search query is required");
   }
 
   const { page: pageNum, limit: limitNum } = getPaginationParams(page, limit);
+  const filters = {};
+  if (status && status !== "all") filters.status = status;
+
   const products = await productService.searchProducts(
     q,
-    {},
+    filters,
     {
       page: pageNum,
       limit: limitNum,
@@ -72,12 +80,46 @@ export const createProduct = asyncHandler(async (req, res) => {
 
 export const updateProduct = asyncHandler(async (req, res) => {
   const product = await productService.updateProduct(req.params.id, req.body);
+
+  if (!product) {
+    return sendError(res, 404, "Product not found");
+  }
+
   sendSuccess(res, 200, product, "Product updated successfully");
 });
 
 export const deleteProduct = asyncHandler(async (req, res) => {
   const product = await productService.deleteProduct(req.params.id);
+
+  if (!product) {
+    return sendError(res, 404, "Product not found");
+  }
+
   sendSuccess(res, 200, product, "Product deleted successfully");
+});
+
+export const uploadProductImage = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    return sendError(res, 400, "File image is required");
+  }
+
+  if (!req.file.mimetype?.startsWith("image/")) {
+    return sendError(res, 400, "Only image files are allowed");
+  }
+
+  const base64 = req.file.buffer.toString("base64");
+  const dataUri = `data:${req.file.mimetype};base64,${base64}`;
+  const uploadResult = await uploadToCloudinary(dataUri, "rioshop/products");
+
+  sendSuccess(
+    res,
+    200,
+    {
+      url: uploadResult.secure_url,
+      publicId: uploadResult.public_id,
+    },
+    "Image uploaded successfully",
+  );
 });
 
 export const getRelatedProducts = asyncHandler(async (req, res) => {

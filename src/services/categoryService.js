@@ -7,8 +7,13 @@ export class CategoryService {
     const { page = 1, limit = 10, sort = { position: 1, name: 1 } } = options;
 
     try {
+      const queryFilters = {
+        deletedAt: null,
+        ...filters,
+      };
+
       const query = Category.paginate(
-        { isActive: true, ...filters },
+        queryFilters,
         {
           page,
           limit,
@@ -42,6 +47,7 @@ export class CategoryService {
       const category = await Category.findOne({
         slug,
         isActive: true,
+        deletedAt: null,
       }).populate([
         {
           path: "parentId",
@@ -68,7 +74,10 @@ export class CategoryService {
 
   async getCategoryById(id) {
     try {
-      const category = await Category.findById(id).populate([
+      const category = await Category.findOne({
+        _id: id,
+        deletedAt: null,
+      }).populate([
         {
           path: "parentId",
           select: "name slug _id",
@@ -82,7 +91,7 @@ export class CategoryService {
 
   async getCategoryTree(parentId = null) {
     try {
-      const cacheKey = `${CACHE_KEYS.CATEGORY}tree:${parentId || "root"}`;
+      const cacheKey = `${CACHE_KEYS.CATEGORY}tree:v2:${parentId || "root"}`;
 
       // Try to get from cache
       const cached = await redisClient.get(cacheKey);
@@ -91,10 +100,18 @@ export class CategoryService {
       }
 
       // Get categories
-      const categories = await Category.find({
-        parentId: parentId ? parentId : { $exists: false },
-        isActive: true,
-      }).sort({ position: 1, name: 1 });
+      const treeFilter = parentId
+        ? { parentId, isActive: true, deletedAt: null }
+        : {
+            isActive: true,
+            deletedAt: null,
+            $or: [{ parentId: null }, { parentId: { $exists: false } }],
+          };
+
+      const categories = await Category.find(treeFilter).sort({
+        position: 1,
+        name: 1,
+      });
 
       // Build tree recursively
       const tree = await Promise.all(
@@ -121,6 +138,7 @@ export class CategoryService {
       const subcategories = await Category.find({
         parentId,
         isActive: true,
+        deletedAt: null,
       })
         .sort({ position: 1, name: 1 })
         .limit(limit);
@@ -203,7 +221,14 @@ export class CategoryService {
 
   async deleteCategory(id) {
     try {
-      const category = await Category.findByIdAndDelete(id);
+      const category = await Category.findByIdAndUpdate(
+        id,
+        {
+          deletedAt: new Date(),
+          updatedAt: new Date(),
+        },
+        { new: true },
+      );
 
       if (!category) {
         return null;
@@ -224,8 +249,17 @@ export class CategoryService {
 
   async invalidateTreeCache(parentId = null) {
     try {
-      const cacheKey = `${CACHE_KEYS.CATEGORY}tree:${parentId || "root"}`;
-      await redisClient.del(cacheKey);
+      const directKeys = [
+        `${CACHE_KEYS.CATEGORY}tree:v2:${parentId || "root"}`,
+        `${CACHE_KEYS.CATEGORY}tree:v2:root`,
+      ];
+
+      const patternKeys = await redisClient.keys(`${CACHE_KEYS.CATEGORY}tree:v2:*`);
+      const keysToDelete = [...new Set([...directKeys, ...patternKeys])];
+
+      if (keysToDelete.length > 0) {
+        await redisClient.del(keysToDelete);
+      }
     } catch (error) {
       console.error("Cache invalidation error:", error);
     }
@@ -244,7 +278,7 @@ export class CategoryService {
           { name: { $regex: query, $options: "i" } },
           { description: { $regex: query, $options: "i" } },
         ],
-        isActive: true,
+        deletedAt: null,
         ...filters,
       };
 
@@ -263,7 +297,7 @@ export class CategoryService {
     try {
       const stats = await Category.aggregate([
         {
-          $match: { isActive: true },
+          $match: { isActive: true, deletedAt: null },
         },
         {
           $facet: {

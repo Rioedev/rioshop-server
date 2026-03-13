@@ -13,7 +13,7 @@ const variantSchema = new mongoose.Schema(
     size: {
       type: String,
       required: true,
-      enum: ["XS", "S", "M", "L", "XL", "2XL", "3XL"],
+      enum: ["XS", "S", "M", "L", "XL", "2XL", "3XL"],  
     },
     sizeLabel: String,
     additionalPrice: { type: Number, default: 0 },
@@ -39,8 +39,8 @@ const mediaSchema = new mongoose.Schema(
 
 const productSchema = new mongoose.Schema(
   {
-    sku: { type: String, required: true, unique: true },
-    slug: { type: String, required: true, unique: true },
+    sku: { type: String, required: true },
+    slug: { type: String, required: true },
     name: { type: String, required: true },
     brand: { type: String, required: true },
     description: String,
@@ -123,6 +123,7 @@ const productSchema = new mongoose.Schema(
     },
     totalSold: { type: Number, default: 0 },
     viewCount: { type: Number, default: 0 },
+    deletedAt: { type: Date, default: null },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now },
     publishedAt: Date,
@@ -133,8 +134,20 @@ const productSchema = new mongoose.Schema(
 productSchema.plugin(mongoosePaginate);
 
 // Indexes
-// productSchema.index({ slug: 1 });
-// productSchema.index({ sku: 1 });
+productSchema.index(
+  { slug: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { deletedAt: null },
+  },
+);
+productSchema.index(
+  { sku: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { deletedAt: null },
+  },
+);
 // productSchema.index({ "variants.sku": 1 });
 productSchema.index({ "category._id": 1, status: 1 });
 productSchema.index({ status: 1, isFeatured: 1 });
@@ -144,5 +157,6 @@ productSchema.index({ name: "text", description: "text" });
 productSchema.index({ gender: 1, status: 1 });
 productSchema.index({ "pricing.salePrice": 1 });
 productSchema.index({ createdAt: -1 });
+productSchema.index({ deletedAt: 1 });
 
 export default mongoose.model("Product", productSchema);
