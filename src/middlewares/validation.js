@@ -14,12 +14,15 @@ export const validateRequest = (schema) => {
         validationData.params = req.params;
       }
 
-      await schema.validateAsync(validationData, { allowUnknown: true });
+      await schema.validateAsync(validationData, {
+        allowUnknown: false,
+        stripUnknown: { objects: true },
+      });
       next();
     } catch (error) {
       res.status(400).json({
         success: false,
-        message: error.details[0].message,
+        message: error?.details?.[0]?.message || "Validation failed",
       });
     }
   };

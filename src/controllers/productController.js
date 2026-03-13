@@ -25,10 +25,19 @@ export const getAllProducts = asyncHandler(async (req, res) => {
     }
   }
 
+  let parsedSort = { createdAt: -1 };
+  if (sort) {
+    try {
+      parsedSort = JSON.parse(sort);
+    } catch {
+      return sendError(res, 400, "Invalid sort format");
+    }
+  }
+
   const products = await productService.getAllProducts(filters, {
     page,
     limit,
-    sort: sort ? JSON.parse(sort) : { createdAt: -1 },
+    sort: parsedSort,
   });
 
   sendSuccess(res, 200, products, "Products fetched successfully");

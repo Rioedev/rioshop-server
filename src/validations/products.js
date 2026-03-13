@@ -56,6 +56,7 @@ export const createProductValidation = Joi.object({
     brand: Joi.string().trim().required(),
     category: categoryValidation.required(),
     description: Joi.string().allow(""),
+    shortDescription: Joi.string().allow(""),
     pricing: Joi.object({
       basePrice: Joi.number().required(),
       salePrice: Joi.number().required(),
@@ -67,6 +68,13 @@ export const createProductValidation = Joi.object({
     tags: Joi.array().items(Joi.string().trim()),
     gender: Joi.string().valid("men", "women", "unisex", "kids"),
     ageGroup: Joi.string().valid("adult", "teen", "kids", "baby"),
+    material: Joi.array().items(Joi.string().trim()),
+    care: Joi.array().items(Joi.string().trim()),
+    seoMeta: Joi.object({
+      title: Joi.string().allow(""),
+      description: Joi.string().allow(""),
+      keywords: Joi.array().items(Joi.string().trim()),
+    }),
     isFeatured: Joi.boolean(),
     isNew: Joi.boolean(),
     isBestseller: Joi.boolean(),
@@ -80,6 +88,7 @@ export const updateProductValidation = Joi.object({
     name: Joi.string().trim(),
     brand: Joi.string().trim(),
     description: Joi.string().allow(""),
+    shortDescription: Joi.string().allow(""),
     category: categoryValidation,
     pricing: Joi.object({
       basePrice: Joi.number(),
@@ -92,6 +101,13 @@ export const updateProductValidation = Joi.object({
     tags: Joi.array().items(Joi.string().trim()),
     gender: Joi.string().valid("men", "women", "unisex", "kids"),
     ageGroup: Joi.string().valid("adult", "teen", "kids", "baby"),
+    material: Joi.array().items(Joi.string().trim()),
+    care: Joi.array().items(Joi.string().trim()),
+    seoMeta: Joi.object({
+      title: Joi.string().allow(""),
+      description: Joi.string().allow(""),
+      keywords: Joi.array().items(Joi.string().trim()),
+    }),
     isFeatured: Joi.boolean(),
     isNew: Joi.boolean(),
     isBestseller: Joi.boolean(),
