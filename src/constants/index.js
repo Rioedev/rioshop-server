@@ -61,6 +61,7 @@ export const ADMIN_ROLE = {
   WAREHOUSE: "warehouse",
   CS: "cs",
   MARKETER: "marketer",
+  SALES: "sales",
 };
 
 // Sizes

@@ -75,6 +75,8 @@ const userSchema = new mongoose.Schema({
     enum: ["active", "banned", "inactive"],
     default: "active",
   },
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: { type: Date, default: null },
   lastLoginAt: Date,
   loginCount: { type: Number, default: 0 },
   referralCode: { type: String, trim: true },
@@ -99,7 +101,7 @@ userSchema.index(
     },
   },
 );
-userSchema.index({ status: 1, createdAt: 1 });
+userSchema.index({ status: 1, isDeleted: 1, createdAt: 1 });
 userSchema.index({ "loyalty.tier": 1 });
 userSchema.index({
   "oauthProviders.provider": 1,

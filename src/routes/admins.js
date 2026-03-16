@@ -18,6 +18,21 @@ import {
   createAdminValidation,
   updateAdminValidation,
 } from "../validations/admin.js";
+import {
+  adminCustomerListValidation,
+  customerIdValidation,
+  createCustomerByAdminValidation,
+  updateCustomerByAdminValidation,
+  updateCustomerStatusByAdminValidation,
+} from "../validations/users.js";
+import {
+  getAllCustomers,
+  getCustomerById,
+  createCustomer,
+  updateCustomer,
+  updateCustomerStatus,
+  softDeleteCustomer,
+} from "../controllers/userController.js";
 
 const router = express.Router();
 
@@ -30,7 +45,7 @@ router.post("/login", validateRequest(adminLoginValidation), adminLogin);
 router.get(
   "/me",
   authenticateToken,
-  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer"),
+  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer", "sales"),
   getCurrentAdmin,
 );
 
@@ -38,7 +53,7 @@ router.get(
 router.post(
   "/logout",
   authenticateToken,
-  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer"),
+  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer", "sales"),
   adminLogout,
 );
 
@@ -46,20 +61,70 @@ router.post(
 router.post(
   "/change-password",
   authenticateToken,
-  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer"),
+  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer", "sales"),
   validateRequest(adminChangePasswordValidation),
   changePassword,
 );
 
-// Superadmin only routes
-// Get all admins
-router.get("/", authenticateToken, authorizeRole("superadmin"), getAllAdmins);
+// Customer user management routes
+router.get(
+  "/users",
+  authenticateToken,
+  authorizeRole("superadmin", "manager", "cs"),
+  validateRequest(adminCustomerListValidation),
+  getAllCustomers,
+);
+
+router.get(
+  "/users/:id",
+  authenticateToken,
+  authorizeRole("superadmin", "manager", "cs"),
+  validateRequest(customerIdValidation),
+  getCustomerById,
+);
+
+router.post(
+  "/users",
+  authenticateToken,
+  authorizeRole("superadmin", "manager"),
+  validateRequest(createCustomerByAdminValidation),
+  createCustomer,
+);
+
+router.put(
+  "/users/:id",
+  authenticateToken,
+  authorizeRole("superadmin", "manager", "cs"),
+  validateRequest(updateCustomerByAdminValidation),
+  updateCustomer,
+);
+
+router.patch(
+  "/users/:id/status",
+  authenticateToken,
+  authorizeRole("superadmin", "manager", "cs"),
+  validateRequest(updateCustomerStatusByAdminValidation),
+  updateCustomerStatus,
+);
+
+router.delete(
+  "/users/:id",
+  authenticateToken,
+  authorizeRole("superadmin", "manager"),
+  validateRequest(customerIdValidation),
+  softDeleteCustomer,
+);
+
+// Admin account management routes
+// superadmin: full access
+// manager: staff roles only
+router.get("/", authenticateToken, authorizeRole("superadmin", "manager"), getAllAdmins);
 
 // Get admin by ID
 router.get(
   "/:id",
   authenticateToken,
-  authorizeRole("superadmin"),
+  authorizeRole("superadmin", "manager"),
   getAdminById,
 );
 
@@ -67,7 +132,7 @@ router.get(
 router.post(
   "/",
   authenticateToken,
-  authorizeRole("superadmin"),
+  authorizeRole("superadmin", "manager"),
   validateRequest(createAdminValidation),
   createAdmin,
 );
@@ -76,7 +141,7 @@ router.post(
 router.put(
   "/:id",
   authenticateToken,
-  authorizeRole("superadmin"),
+  authorizeRole("superadmin", "manager"),
   validateRequest(updateAdminValidation),
   updateAdmin,
 );
@@ -85,7 +150,7 @@ router.put(
 router.delete(
   "/:id",
   authenticateToken,
-  authorizeRole("superadmin"),
+  authorizeRole("superadmin", "manager"),
   deleteAdmin,
 );
 

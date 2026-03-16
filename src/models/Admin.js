@@ -7,12 +7,14 @@ const adminSchema = new mongoose.Schema({
   avatar: String,
   role: {
     type: String,
-    enum: ["superadmin", "manager", "warehouse", "cs", "marketer"],
+    enum: ["superadmin", "manager", "warehouse", "cs", "marketer", "sales"],
     required: true,
   },
   permissions: [String],
   warehouseIds: [String],
   isActive: { type: Boolean, default: true },
+  isDeleted: { type: Boolean, default: false },
+  deletedAt: { type: Date, default: null },
   lastLoginAt: Date,
   loginHistory: [
     {
@@ -28,5 +30,6 @@ const adminSchema = new mongoose.Schema({
 
 // Indexes
 // adminSchema.index({ email: 1 });
+adminSchema.index({ role: 1, isDeleted: 1, isActive: 1, createdAt: 1 });
 
 export default mongoose.model("Admin", adminSchema);

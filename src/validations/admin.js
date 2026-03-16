@@ -55,11 +55,11 @@ export const createAdminValidation = Joi.object({
       "any.required": "Full name is required",
     }),
     role: Joi.string()
-      .valid("superadmin", "manager", "warehouse", "cs", "marketer")
+      .valid("superadmin", "manager", "warehouse", "cs", "marketer", "sales")
       .required()
       .messages({
         "any.only":
-          "Role must be one of: superadmin, manager, warehouse, cs, marketer",
+          "Role must be one of: superadmin, manager, warehouse, cs, marketer, sales",
         "any.required": "Role is required",
       }),
     permissions: Joi.array().items(Joi.string()).optional(),
@@ -73,11 +73,11 @@ export const updateAdminValidation = Joi.object({
   body: Joi.object({
     fullName: Joi.string().min(2).max(100).optional(),
     role: Joi.string()
-      .valid("superadmin", "manager", "warehouse", "cs", "marketer")
+      .valid("superadmin", "manager", "warehouse", "cs", "marketer", "sales")
       .optional()
       .messages({
         "any.only":
-          "Role must be one of: superadmin, manager, warehouse, cs, marketer",
+          "Role must be one of: superadmin, manager, warehouse, cs, marketer, sales",
       }),
     permissions: Joi.array().items(Joi.string()).optional(),
     isActive: Joi.boolean().optional(),

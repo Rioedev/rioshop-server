@@ -8,7 +8,12 @@ export class AdminService {
 
     try {
       const skip = (page - 1) * limit;
-      const query = { ...filters };
+      const query = {
+        $and: [
+          { $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }] },
+          { ...filters },
+        ],
+      };
 
       const [admins, totalDocs] = await Promise.all([
         Admin.find(query).select("-passwordHash").sort(sort).skip(skip).limit(limit),
@@ -31,7 +36,10 @@ export class AdminService {
 
   async getAdminById(id) {
     try {
-      return await Admin.findById(id).select("-passwordHash");
+      return await Admin.findOne({
+        _id: id,
+        $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
+      }).select("-passwordHash");
     } catch (error) {
       throw error;
     }
@@ -64,7 +72,10 @@ export class AdminService {
 
   async updateAdmin(id, data) {
     try {
-      const admin = await Admin.findById(id);
+      const admin = await Admin.findOne({
+        _id: id,
+        $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
+      });
       if (!admin) {
         throw new AppError("Admin not found", 404);
       }
@@ -92,9 +103,14 @@ export class AdminService {
 
       updateData.updatedAt = new Date();
 
-      return await Admin.findByIdAndUpdate(id, updateData, { new: true }).select(
-        "-passwordHash",
-      );
+      return await Admin.findOneAndUpdate(
+        {
+          _id: id,
+          $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
+        },
+        updateData,
+        { new: true },
+      ).select("-passwordHash");
     } catch (error) {
       throw error;
     }
@@ -106,7 +122,19 @@ export class AdminService {
         throw new AppError("Cannot delete your own admin account", 400);
       }
 
-      return await Admin.findByIdAndDelete(id);
+      return await Admin.findOneAndUpdate(
+        {
+          _id: id,
+          $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
+        },
+        {
+          isActive: false,
+          isDeleted: true,
+          deletedAt: new Date(),
+          updatedAt: new Date(),
+        },
+        { new: true },
+      );
     } catch (error) {
       throw error;
     }
