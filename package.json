@@ -7,7 +7,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "seed": "node scripts/seedAllData.js",
+    "seed": "node scripts/seedStorefrontData.js",
+    "seed:storefront": "node scripts/seedStorefrontData.js",
+    "seed:fashion-demo": "node scripts/seedFashionDemoData.js",
     "fix:user-indexes": "node scripts/fixUserReferralIndex.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
