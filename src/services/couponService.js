@@ -180,11 +180,16 @@ export class CouponService {
     }
   }
 
-  async markCouponUsed(couponId, payload = {}) {
+  async markCouponUsed(couponId, payload = {}, options = {}) {
     const { userId = null, orderId = null } = payload;
+    const { session = null } = options;
 
     try {
-      const coupon = await Coupon.findById(couponId);
+      const query = Coupon.findById(couponId);
+      if (session) {
+        query.session(session);
+      }
+      const coupon = await query;
       if (!coupon) {
         throw new AppError("Coupon not found", 404);
       }
@@ -200,7 +205,7 @@ export class CouponService {
         });
       }
 
-      await coupon.save();
+      await coupon.save({ session });
       return coupon;
     } catch (error) {
       throw error;

@@ -4,7 +4,7 @@ import mongoosePaginate from "mongoose-paginate-v2";
 const variantSchema = new mongoose.Schema(
   {
     variantId: { type: String, required: true },
-    sku: { type: String, required: true, unique: true },
+    sku: { type: String, required: true },
     color: {
       name: String,
       hex: String,
@@ -13,9 +13,9 @@ const variantSchema = new mongoose.Schema(
     size: {
       type: String,
       required: true,
-      enum: ["XS", "S", "M", "L", "XL", "2XL", "3XL"],  
     },
     sizeLabel: String,
+    stock: { type: Number, default: 0, min: 0 },
     additionalPrice: { type: Number, default: 0 },
     barcode: String,
     images: [String],
@@ -132,6 +132,29 @@ const productSchema = new mongoose.Schema(
 );
 
 productSchema.plugin(mongoosePaginate);
+
+productSchema.pre("save", function synchronizeInventorySummary() {
+  const variants = Array.isArray(this.variants) ? this.variants : [];
+  const available = variants.reduce(
+    (sum, variant) => sum + Math.max(0, Number(variant?.stock || 0)),
+    0,
+  );
+  const reserved = Math.max(0, Number(this.inventorySummary?.reserved || 0));
+
+  this.inventorySummary = {
+    total: available + reserved,
+    available,
+    reserved,
+  };
+
+  if (this.status === "active" && available <= 0) {
+    this.status = "out_of_stock";
+  } else if (this.status === "out_of_stock" && available > 0) {
+    this.status = "active";
+  }
+
+  this.updatedAt = new Date();
+});
 
 // Indexes
 productSchema.index(

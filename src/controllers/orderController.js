@@ -36,14 +36,23 @@ export const getOrderById = asyncHandler(async (req, res) => {
 });
 
 export const createOrder = asyncHandler(async (req, res) => {
-  const order = await orderService.createOrder(req.user.userId, req.body);
+  const payload = { ...req.body };
+  if (!req.user.adminId) {
+    payload.status = "pending";
+  }
+
+  const order = await orderService.createOrder(req.user.userId, payload);
   sendSuccess(res, 201, order, "Order created successfully");
 });
 
 export const updateOrderStatus = asyncHandler(async (req, res) => {
+  if (!req.user.adminId) {
+    return sendError(res, 403, "Only admin can update order status");
+  }
+
   const order = await orderService.updateOrderStatus(req.params.id, req.body.status, {
     note: req.body.note,
-    updatedBy: req.user.adminId ? "admin" : "user",
+    updatedBy: "admin",
     paymentStatus: req.body.paymentStatus,
   });
 

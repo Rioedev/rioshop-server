@@ -1,5 +1,6 @@
 import Shipment from "../models/Shipment.js";
 import Order from "../models/Order.js";
+import orderService from "./orderService.js";
 import { AppError } from "../utils/helpers.js";
 
 const SHIPMENT_TO_ORDER_STATUS = {
@@ -53,11 +54,19 @@ export class ShipmentService {
 
       await shipment.save();
 
-      order.shipmentId = shipment._id;
-      order.shippingCarrier = shipment.carrier;
-      order.status = SHIPMENT_TO_ORDER_STATUS[shipment.status] || order.status;
-      order.updatedAt = new Date();
-      await order.save();
+      await Order.findByIdAndUpdate(order._id, {
+        shipmentId: shipment._id,
+        shippingCarrier: shipment.carrier,
+        updatedAt: new Date(),
+      });
+
+      const mappedOrderStatus = SHIPMENT_TO_ORDER_STATUS[shipment.status];
+      if (mappedOrderStatus && mappedOrderStatus !== order.status) {
+        await orderService.updateOrderStatus(order._id, mappedOrderStatus, {
+          note: data.initialNote || "Shipment created",
+          updatedBy: "system",
+        });
+      }
 
       return shipment;
     } catch (error) {
@@ -111,10 +120,13 @@ export class ShipmentService {
       if (shipment.orderId) {
         const mappedOrderStatus = SHIPMENT_TO_ORDER_STATUS[shipment.status];
         if (mappedOrderStatus) {
-          await Order.findByIdAndUpdate(shipment.orderId, {
-            status: mappedOrderStatus,
-            updatedAt: new Date(),
-          });
+          const order = await Order.findById(shipment.orderId).select("_id status");
+          if (order && order.status !== mappedOrderStatus) {
+            await orderService.updateOrderStatus(order._id, mappedOrderStatus, {
+              note: data.note || "",
+              updatedBy: "system",
+            });
+          }
         }
       }
 

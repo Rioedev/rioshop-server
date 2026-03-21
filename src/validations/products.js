@@ -1,7 +1,7 @@
 import Joi from "joi";
 
 const mediaTypeValidation = Joi.string().valid("image", "video", "360");
-const sizeValidation = Joi.string().valid("XS", "S", "M", "L", "XL", "2XL", "3XL");
+const sizeValidation = Joi.string().trim().min(1);
 
 const statusValidation = Joi.string().valid(
   "draft",
@@ -33,7 +33,7 @@ const productMediaValidation = Joi.object({
 
 const productVariantValidation = Joi.object({
   variantId: Joi.string().trim().required(),
-  sku: Joi.string().trim().required(),
+  sku: Joi.string().trim().allow("").optional(),
   color: Joi.object({
     name: Joi.string().allow(""),
     hex: Joi.string().pattern(/^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/).allow(""),
@@ -41,6 +41,7 @@ const productVariantValidation = Joi.object({
   }),
   size: sizeValidation.required(),
   sizeLabel: Joi.string().allow(""),
+  stock: Joi.number().min(0),
   additionalPrice: Joi.number().min(0),
   barcode: Joi.string().allow(""),
   images: Joi.array().items(Joi.string().uri()),
@@ -50,7 +51,7 @@ const productVariantValidation = Joi.object({
 
 export const createProductValidation = Joi.object({
   body: Joi.object({
-    sku: Joi.string().trim().required(),
+    sku: Joi.string().trim().allow("").optional(),
     slug: Joi.string().trim().required(),
     name: Joi.string().trim().required(),
     brand: Joi.string().trim().required(),
@@ -63,7 +64,7 @@ export const createProductValidation = Joi.object({
     }).required(),
     inventorySummary: inventorySummaryValidation,
     variants: Joi.array().items(productVariantValidation).min(1).required(),
-    media: Joi.array().items(productMediaValidation).min(1).required(),
+    media: Joi.array().items(productMediaValidation).optional(),
     status: statusValidation,
     tags: Joi.array().items(Joi.string().trim()),
     gender: Joi.string().valid("men", "women", "unisex", "kids"),
@@ -83,7 +84,7 @@ export const createProductValidation = Joi.object({
 
 export const updateProductValidation = Joi.object({
   body: Joi.object({
-    sku: Joi.string().trim(),
+    sku: Joi.string().trim().allow(""),
     slug: Joi.string().trim(),
     name: Joi.string().trim(),
     brand: Joi.string().trim(),
@@ -96,7 +97,7 @@ export const updateProductValidation = Joi.object({
     }),
     inventorySummary: inventorySummaryValidation,
     variants: Joi.array().items(productVariantValidation).min(1),
-    media: Joi.array().items(productMediaValidation).min(1),
+    media: Joi.array().items(productMediaValidation),
     status: statusValidation,
     tags: Joi.array().items(Joi.string().trim()),
     gender: Joi.string().valid("men", "women", "unisex", "kids"),
