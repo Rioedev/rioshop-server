@@ -12,10 +12,6 @@ export const addToCartValidation = Joi.object({
   body: Joi.object({
     productId: objectId.required(),
     variantSku: Joi.string().trim().min(1).required(),
-    productName: Joi.string().trim().min(1).required(),
-    variantLabel: Joi.string().trim().allow("").optional(),
-    image: Joi.string().uri().required(),
-    unitPrice: Joi.number().min(0).required(),
     quantity: Joi.number().integer().min(1).default(1),
   }).required(),
 });
@@ -26,9 +22,6 @@ export const updateCartItemValidation = Joi.object({
   }).required(),
   body: Joi.object({
     quantity: Joi.number().integer().min(0).optional(),
-    unitPrice: Joi.number().min(0).optional(),
-    variantLabel: Joi.string().trim().allow("").optional(),
-    image: Joi.string().uri().optional(),
   })
     .min(1)
     .required(),

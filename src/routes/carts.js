@@ -6,6 +6,7 @@ import {
   addToCart,
   updateCartItem,
   removeCartItem,
+  clearCart,
   applyCartCoupon,
 } from "../controllers/cartController.js";
 import {
@@ -43,6 +44,9 @@ router.delete(
   validateRequest(cartItemIdValidation),
   removeCartItem,
 );
+
+// Clear cart
+router.delete("/clear", authenticateToken, clearCart);
 
 // Apply coupon
 router.post(

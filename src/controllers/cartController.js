@@ -26,6 +26,11 @@ export const removeCartItem = asyncHandler(async (req, res) => {
   sendSuccess(res, 200, cart, "Item removed from cart");
 });
 
+export const clearCart = asyncHandler(async (req, res) => {
+  const cart = await cartService.clearCart(req.user.userId);
+  sendSuccess(res, 200, cart, "Cart cleared");
+});
+
 export const applyCartCoupon = asyncHandler(async (req, res) => {
   const { code } = req.body;
   const result = await cartService.applyCoupon(req.user.userId, code);

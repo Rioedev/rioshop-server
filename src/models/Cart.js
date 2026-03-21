@@ -2,11 +2,13 @@ import mongoose from "mongoose";
 
 const cartItemSchema = new mongoose.Schema(
   {
+    itemId: { type: String, default: "" },
     productId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Product",
       required: true,
     },
+    productSlug: { type: String, default: "" },
     variantSku: { type: String, required: true },
     productName: { type: String, required: true },
     variantLabel: { type: String, required: true },

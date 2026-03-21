@@ -1,11 +1,18 @@
 import Cart from "../models/Cart.js";
+import Product from "../models/Product.js";
 import couponService from "./couponService.js";
 import { AppError } from "../utils/helpers.js";
+
+const CART_ITEM_DELIMITER = "::";
+const FALLBACK_CART_IMAGE =
+  "https://dummyimage.com/400x400/e2e8f0/0f172a&text=RIO";
 
 export class CartService {
   async getCartByUser(userId) {
     try {
-      return await this.getOrCreateCart(userId);
+      const cart = await this.getOrCreateCart(userId);
+      await this.normalizeLegacyCartItems(cart);
+      return cart;
     } catch (error) {
       throw error;
     }
@@ -14,14 +21,42 @@ export class CartService {
   async addItem(userId, itemData) {
     try {
       const cart = await this.getOrCreateCart(userId);
-      const item = this.normalizeItem(itemData);
-      const itemIndex = this.findItemIndex(cart.items || [], item.variantSku);
+      await this.normalizeLegacyCartItems(cart);
+      const requestedItem = this.normalizeRequestedItem(itemData);
+      const itemSnapshot = await this.resolveCatalogSnapshot(
+        requestedItem.productId,
+        requestedItem.variantSku,
+      );
+      const itemIndex = this.findItemIndex(cart.items || [], itemSnapshot.itemId);
 
       if (itemIndex >= 0) {
-        cart.items[itemIndex].quantity += item.quantity;
-        cart.items[itemIndex].unitPrice = item.unitPrice;
+        const nextQuantity = Number(cart.items[itemIndex].quantity || 0) + requestedItem.quantity;
+        if (nextQuantity > itemSnapshot.stock) {
+          throw new AppError(
+            `Only ${itemSnapshot.stock} item(s) left for ${itemSnapshot.variantLabel}`,
+            409,
+          );
+        }
+        this.assignCartItemSnapshot(cart.items[itemIndex], itemSnapshot, nextQuantity);
       } else {
-        cart.items.push(item);
+        if (requestedItem.quantity > itemSnapshot.stock) {
+          throw new AppError(
+            `Only ${itemSnapshot.stock} item(s) left for ${itemSnapshot.variantLabel}`,
+            409,
+          );
+        }
+        cart.items.push({
+          itemId: itemSnapshot.itemId,
+          productId: itemSnapshot.productId,
+          productSlug: itemSnapshot.productSlug,
+          variantSku: itemSnapshot.variantSku,
+          productName: itemSnapshot.productName,
+          variantLabel: itemSnapshot.variantLabel,
+          image: itemSnapshot.image,
+          unitPrice: itemSnapshot.unitPrice,
+          quantity: requestedItem.quantity,
+          addedAt: new Date(),
+        });
       }
 
       await this.recalculateCart(cart, userId);
@@ -36,28 +71,36 @@ export class CartService {
   async updateCartItem(userId, itemId, payload = {}) {
     try {
       const cart = await this.getOrCreateCart(userId);
-      const itemIndex = this.findItemIndex(cart.items || [], itemId);
+      await this.normalizeLegacyCartItems(cart);
+      const normalizedItemId = this.normalizeCartItemId(itemId);
+      const itemIndex = this.findItemIndex(cart.items || [], normalizedItemId);
 
       if (itemIndex < 0) {
         throw new AppError("Cart item not found", 404);
       }
 
-      const item = cart.items[itemIndex];
-      if (payload.quantity !== undefined) {
-        item.quantity = Number(payload.quantity);
-      }
-      if (payload.unitPrice !== undefined) {
-        item.unitPrice = Number(payload.unitPrice);
-      }
-      if (payload.variantLabel !== undefined) {
-        item.variantLabel = payload.variantLabel;
-      }
-      if (payload.image !== undefined) {
-        item.image = payload.image;
+      const quantity = Number(payload.quantity);
+      if (!Number.isFinite(quantity) || !Number.isInteger(quantity) || quantity < 0) {
+        throw new AppError("Item quantity is invalid", 400);
       }
 
-      if (item.quantity <= 0) {
+      if (quantity === 0) {
         cart.items.splice(itemIndex, 1);
+      } else {
+        const currentItem = cart.items[itemIndex];
+        const itemSnapshot = await this.resolveCatalogSnapshot(
+          currentItem.productId,
+          currentItem.variantSku,
+        );
+
+        if (quantity > itemSnapshot.stock) {
+          throw new AppError(
+            `Only ${itemSnapshot.stock} item(s) left for ${itemSnapshot.variantLabel}`,
+            409,
+          );
+        }
+
+        this.assignCartItemSnapshot(cart.items[itemIndex], itemSnapshot, quantity);
       }
 
       await this.recalculateCart(cart, userId);
@@ -72,7 +115,9 @@ export class CartService {
   async removeCartItem(userId, itemId) {
     try {
       const cart = await this.getOrCreateCart(userId);
-      const itemIndex = this.findItemIndex(cart.items || [], itemId);
+      await this.normalizeLegacyCartItems(cart);
+      const normalizedItemId = this.normalizeCartItemId(itemId);
+      const itemIndex = this.findItemIndex(cart.items || [], normalizedItemId);
 
       if (itemIndex < 0) {
         throw new AppError("Cart item not found", 404);
@@ -174,48 +219,142 @@ export class CartService {
     return cart;
   }
 
-  normalizeItem(itemData) {
+  normalizeRequestedItem(itemData) {
+    const productId = itemData.productId?.toString().trim();
+    const variantSku = itemData.variantSku?.toString().trim();
     const quantity = Number(itemData.quantity || 1);
-    const unitPrice = Number(itemData.unitPrice);
 
-    if (!itemData.productId || !itemData.variantSku || !itemData.productName) {
+    if (!productId || !variantSku) {
       throw new AppError("Invalid cart item payload", 400);
     }
-    if (!itemData.image) {
-      throw new AppError("Item image is required", 400);
-    }
 
-    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
-      throw new AppError("Item price is invalid", 400);
-    }
-
-    if (!Number.isFinite(quantity) || quantity <= 0) {
+    if (!Number.isFinite(quantity) || !Number.isInteger(quantity) || quantity <= 0) {
       throw new AppError("Item quantity is invalid", 400);
     }
 
     return {
-      productId: itemData.productId,
-      variantSku: itemData.variantSku,
-      productName: itemData.productName,
-      variantLabel: itemData.variantLabel || itemData.variantSku,
-      image: itemData.image || "",
-      unitPrice,
+      productId,
+      variantSku,
       quantity,
-      addedAt: new Date(),
     };
   }
 
+  normalizeCartItemId(itemId) {
+    const target = itemId?.toString().trim();
+    if (!target) {
+      throw new AppError("Cart item id is required", 400);
+    }
+    return target;
+  }
+
+  buildCartItemId(productId, variantSku) {
+    return `${productId?.toString().trim()}${CART_ITEM_DELIMITER}${variantSku?.toString().trim()}`;
+  }
+
+  async resolveCatalogSnapshot(productId, variantSku) {
+    const product = await Product.findOne({
+      _id: productId,
+      deletedAt: null,
+    }).select("slug name status pricing variants media");
+
+    if (!product) {
+      throw new AppError("Product not found", 404);
+    }
+
+    if (!["active", "out_of_stock"].includes(product.status)) {
+      throw new AppError("Product is unavailable", 409);
+    }
+
+    const normalizedVariantSku = variantSku?.toString().trim();
+    const variant = (product.variants || []).find(
+      (entry) =>
+        (entry.sku || "").trim() === normalizedVariantSku && entry.isActive !== false,
+    );
+
+    if (!variant) {
+      throw new AppError("Variant not found or inactive", 400);
+    }
+
+    const stock = Math.max(0, Number(variant.stock || 0));
+    if (stock <= 0) {
+      throw new AppError(`Variant ${normalizedVariantSku} is out of stock`, 409);
+    }
+
+    const unitPrice = Math.max(
+      0,
+      Number(product.pricing?.salePrice || 0) + Number(variant.additionalPrice || 0),
+    );
+    const variantLabel = this.buildVariantLabel(variant);
+
+    const image =
+      (variant.images || []).find((url) => Boolean(url)) ||
+      (product.media || []).find((media) => media.type === "image" && media.url)?.url ||
+      (product.media || []).find((media) => Boolean(media.url))?.url ||
+      FALLBACK_CART_IMAGE;
+
+    return {
+      itemId: this.buildCartItemId(product._id, normalizedVariantSku),
+      productId: product._id,
+      productSlug: product.slug || "",
+      productName: product.name || "",
+      variantSku: normalizedVariantSku,
+      variantLabel,
+      image,
+      unitPrice,
+      stock,
+    };
+  }
+
+  buildVariantLabel(variant = {}) {
+    const colorName = variant.color?.name?.toString().trim();
+    const sizeName = variant.sizeLabel?.toString().trim() || variant.size?.toString().trim();
+    if (colorName && sizeName) {
+      return `${colorName} / ${sizeName}`;
+    }
+    return colorName || sizeName || variant.sku || "Default";
+  }
+
+  assignCartItemSnapshot(cartItem, snapshot, quantity) {
+    cartItem.itemId = snapshot.itemId;
+    cartItem.productId = snapshot.productId;
+    cartItem.productSlug = snapshot.productSlug;
+    cartItem.variantSku = snapshot.variantSku;
+    cartItem.productName = snapshot.productName;
+    cartItem.variantLabel = snapshot.variantLabel;
+    cartItem.image = snapshot.image;
+    cartItem.unitPrice = snapshot.unitPrice;
+    cartItem.quantity = quantity;
+  }
+
+  async normalizeLegacyCartItems(cart) {
+    let changed = false;
+
+    (cart.items || []).forEach((item) => {
+      const normalizedId =
+        item.itemId || this.buildCartItemId(item.productId, item.variantSku);
+      if (normalizedId && item.itemId !== normalizedId) {
+        item.itemId = normalizedId;
+        changed = true;
+      }
+
+      if (Number(item.quantity || 0) <= 0) {
+        item.quantity = 1;
+        changed = true;
+      }
+    });
+
+    if (changed) {
+      cart.markModified("items");
+    }
+  }
+
   findItemIndex(items = [], itemId) {
-    const target = itemId?.toString();
+    const target = this.normalizeCartItemId(itemId);
 
     return items.findIndex((item) => {
-      const productId = item.productId?.toString();
-      const variantSku = item.variantSku?.toString();
-      const embeddedId = item._id?.toString();
-
-      return (
-        embeddedId === target || productId === target || variantSku === target
-      );
+      const existingId =
+        item.itemId || this.buildCartItemId(item.productId, item.variantSku);
+      return existingId === target;
     });
   }
 
