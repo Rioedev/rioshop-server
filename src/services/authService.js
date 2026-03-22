@@ -6,6 +6,7 @@ import crypto from "crypto";
 import { generateToken } from "../middlewares/auth.js";
 import { redisClient } from "../config/redis.js";
 import { AppError } from "../utils/helpers.js";
+import emailService from "./emailService.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -48,6 +49,10 @@ export class AuthService {
       });
 
       await user.save();
+      void emailService.sendWelcomeEmail({
+        email: user.email,
+        fullName: user.fullName,
+      });
 
       // Generate token
       const token = generateToken({
@@ -353,9 +358,11 @@ export class AuthService {
       const resetKey = `password_reset:${user._id}`;
       await redisClient.setEx(resetKey, 3600, resetTokenHash);
 
-      // In real app, send email with reset link
-      // For now, just return the token (NOT for production!)
-      console.log(`Reset token for ${email}: ${resetToken}`);
+      void emailService.sendPasswordReset({
+        email: user.email,
+        userId: user._id.toString(),
+        resetToken,
+      });
 
       return { message: "Password reset link sent to email" };
     } catch (error) {

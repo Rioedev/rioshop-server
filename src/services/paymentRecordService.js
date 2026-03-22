@@ -6,6 +6,7 @@ import {
   VNPaymentService,
   ZaloPaymentService,
 } from "./paymentService.js";
+import emailService from "./emailService.js";
 import { AppError } from "../utils/helpers.js";
 
 export class PaymentRecordService {
@@ -185,10 +186,22 @@ export class PaymentRecordService {
 
       await payment.save();
 
-      await Order.findByIdAndUpdate(payment.orderId, {
-        paymentStatus: this.mapPaymentStatusToOrderStatus(status),
-        updatedAt: new Date(),
-      });
+      const order = await Order.findById(payment.orderId);
+      if (order) {
+        const previousPaymentStatus = order.paymentStatus || "pending";
+        const nextPaymentStatus = this.mapPaymentStatusToOrderStatus(status);
+        order.paymentStatus = nextPaymentStatus;
+        order.updatedAt = new Date();
+        await order.save();
+
+        if (previousPaymentStatus !== nextPaymentStatus) {
+          void emailService.sendPaymentStatusUpdate(
+            order,
+            previousPaymentStatus,
+            nextPaymentStatus,
+          );
+        }
+      }
 
       return payment;
     } catch (error) {
@@ -225,10 +238,22 @@ export class PaymentRecordService {
       payment.updatedAt = new Date();
       await payment.save();
 
-      await Order.findByIdAndUpdate(payment.orderId, {
-        paymentStatus: this.mapPaymentStatusToOrderStatus(payment.status),
-        updatedAt: new Date(),
-      });
+      const order = await Order.findById(payment.orderId);
+      if (order) {
+        const previousPaymentStatus = order.paymentStatus || "pending";
+        const nextPaymentStatus = this.mapPaymentStatusToOrderStatus(payment.status);
+        order.paymentStatus = nextPaymentStatus;
+        order.updatedAt = new Date();
+        await order.save();
+
+        if (previousPaymentStatus !== nextPaymentStatus) {
+          void emailService.sendPaymentStatusUpdate(
+            order,
+            previousPaymentStatus,
+            nextPaymentStatus,
+          );
+        }
+      }
 
       return payment;
     } catch (error) {

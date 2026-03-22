@@ -3,6 +3,7 @@ import User from "../models/User.js";
 import Product from "../models/Product.js";
 import Inventory from "../models/Inventory.js";
 import couponService from "./couponService.js";
+import emailService from "./emailService.js";
 import { SINGLE_WAREHOUSE_ID, SINGLE_WAREHOUSE_NAME } from "../constants/warehouse.js";
 import { AppError } from "../utils/helpers.js";
 
@@ -190,7 +191,9 @@ export class OrderService {
       throw new AppError("Failed to create order", 500);
     }
 
-    return await this.getOrderById(createdOrderId, null);
+    const createdOrder = await this.getOrderById(createdOrderId, null);
+    void emailService.sendOrderConfirmation(createdOrder);
+    return createdOrder;
   }
 
   async updateOrderStatus(orderId, status, payload = {}) {
@@ -202,6 +205,8 @@ export class OrderService {
 
     const session = await Order.startSession();
     let updatedOrderId = null;
+    let previousStatus = "";
+    let previousPaymentStatus = "";
 
     try {
       await session.withTransaction(async () => {
@@ -211,6 +216,8 @@ export class OrderService {
           throw new AppError("Order not found", 404);
         }
 
+        previousStatus = order.status;
+        previousPaymentStatus = order.paymentStatus || "pending";
         this.assertStatusTransition(order.status, status);
         await this.applyInventoryForStatusTransition(order.items || [], order.status, status, session);
 
@@ -241,7 +248,22 @@ export class OrderService {
       throw new AppError("Failed to update order status", 500);
     }
 
-    return await this.getOrderById(updatedOrderId, userId || null);
+    const updatedOrder = await this.getOrderById(updatedOrderId, userId || null);
+    if (previousStatus && previousStatus !== updatedOrder?.status) {
+      void emailService.sendOrderStatusUpdate(updatedOrder, previousStatus);
+    }
+    if (
+      previousPaymentStatus &&
+      updatedOrder?.paymentStatus &&
+      previousPaymentStatus !== updatedOrder.paymentStatus
+    ) {
+      void emailService.sendPaymentStatusUpdate(
+        updatedOrder,
+        previousPaymentStatus,
+        updatedOrder.paymentStatus,
+      );
+    }
+    return updatedOrder;
   }
 
   async cancelOrder(orderId, userId = null, payload = {}) {
@@ -249,6 +271,7 @@ export class OrderService {
 
     const session = await Order.startSession();
     let cancelledOrderId = null;
+    let previousStatus = "";
 
     try {
       await session.withTransaction(async () => {
@@ -262,6 +285,7 @@ export class OrderService {
           throw new AppError("Order can no longer be cancelled", 400);
         }
 
+        previousStatus = order.status;
         this.assertStatusTransition(order.status, "cancelled");
         await this.applyInventoryForStatusTransition(order.items || [], order.status, "cancelled", session);
 
@@ -286,7 +310,11 @@ export class OrderService {
       throw new AppError("Failed to cancel order", 500);
     }
 
-    return await this.getOrderById(cancelledOrderId, userId || null);
+    const cancelledOrder = await this.getOrderById(cancelledOrderId, userId || null);
+    if (previousStatus && previousStatus !== cancelledOrder?.status) {
+      void emailService.sendOrderStatusUpdate(cancelledOrder, previousStatus);
+    }
+    return cancelledOrder;
   }
 
   async attachPayment(orderId, paymentId, paymentStatus = "paid") {
@@ -296,10 +324,18 @@ export class OrderService {
         throw new AppError("Order not found", 404);
       }
 
+      const previousPaymentStatus = order.paymentStatus || "pending";
       order.paymentId = paymentId;
       order.paymentStatus = paymentStatus;
       order.updatedAt = new Date();
       await order.save();
+      if (previousPaymentStatus !== order.paymentStatus) {
+        void emailService.sendPaymentStatusUpdate(
+          order,
+          previousPaymentStatus,
+          order.paymentStatus,
+        );
+      }
 
       return order;
     } catch (error) {
