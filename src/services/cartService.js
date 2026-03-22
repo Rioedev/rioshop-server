@@ -54,6 +54,7 @@ export class CartService {
           variantLabel: itemSnapshot.variantLabel,
           image: itemSnapshot.image,
           unitPrice: itemSnapshot.unitPrice,
+          availableStock: itemSnapshot.stock,
           quantity: requestedItem.quantity,
           addedAt: new Date(),
         });
@@ -323,6 +324,7 @@ export class CartService {
     cartItem.variantLabel = snapshot.variantLabel;
     cartItem.image = snapshot.image;
     cartItem.unitPrice = snapshot.unitPrice;
+    cartItem.availableStock = snapshot.stock;
     cartItem.quantity = quantity;
   }
 
@@ -339,6 +341,15 @@ export class CartService {
 
       if (Number(item.quantity || 0) <= 0) {
         item.quantity = 1;
+        changed = true;
+      }
+
+      const normalizedStock = Math.max(
+        1,
+        Number(item.availableStock || item.quantity || 1),
+      );
+      if (Number(item.availableStock || 0) !== normalizedStock) {
+        item.availableStock = normalizedStock;
         changed = true;
       }
     });

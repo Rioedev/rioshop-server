@@ -19,7 +19,6 @@ export const getInventoryByVariantSku = asyncHandler(async (req, res) => {
     {
       page,
       limit,
-      warehouseId: req.query.warehouseId,
     },
   );
 

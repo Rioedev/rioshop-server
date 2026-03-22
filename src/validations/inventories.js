@@ -23,7 +23,6 @@ export const getInventoryBySkuValidation = Joi.object({
   query: Joi.object({
     page: Joi.number().integer().min(1).optional(),
     limit: Joi.number().integer().min(1).max(100).optional(),
-    warehouseId: Joi.string().trim().optional(),
   }).required(),
 });
 
@@ -33,8 +32,6 @@ export const updateInventoryValidation = Joi.object({
   }).required(),
   body: Joi.object({
     productId: objectId.optional(),
-    warehouseId: Joi.string().trim().optional(),
-    warehouseName: Joi.string().trim().optional(),
     onHand: Joi.number().integer().min(0).optional(),
     reserved: Joi.number().integer().min(0).optional(),
     incoming: Joi.number().integer().min(0).optional(),

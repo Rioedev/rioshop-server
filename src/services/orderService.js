@@ -1,7 +1,9 @@
 import Order from "../models/Order.js";
 import User from "../models/User.js";
 import Product from "../models/Product.js";
+import Inventory from "../models/Inventory.js";
 import couponService from "./couponService.js";
+import { SINGLE_WAREHOUSE_ID, SINGLE_WAREHOUSE_NAME } from "../constants/warehouse.js";
 import { AppError } from "../utils/helpers.js";
 
 const ORDER_STATUSES = new Set([
@@ -589,6 +591,15 @@ export class OrderService {
           variant.stock = Number(variant.stock || 0) + quantity;
           soldDelta -= quantity;
         }
+
+        await this.syncSingleWarehouseInventoryForOrderAction({
+          productId: product._id,
+          variantSku,
+          availableAfterAction: Number(variant.stock || 0),
+          quantity,
+          action,
+          session,
+        });
       }
 
       const currentReserved = Number(product.inventorySummary?.reserved || 0);
@@ -620,6 +631,62 @@ export class OrderService {
       product.updatedAt = new Date();
       await product.save({ session });
     }
+  }
+
+  async syncSingleWarehouseInventoryForOrderAction(payload = {}) {
+    const {
+      productId,
+      variantSku,
+      availableAfterAction,
+      quantity,
+      action,
+      session,
+    } = payload;
+
+    const safeQuantity = Math.max(0, Number(quantity || 0));
+    const available = Math.max(0, Number(availableAfterAction || 0));
+
+    let inventory = await Inventory.findOne({
+      productId,
+      variantSku,
+      warehouseId: SINGLE_WAREHOUSE_ID,
+    }).session(session);
+
+    if (!inventory) {
+      let initialReserved = 0;
+      if (action === "reserve" || action === "commit") {
+        initialReserved = safeQuantity;
+      }
+
+      inventory = new Inventory({
+        productId,
+        variantSku,
+        warehouseId: SINGLE_WAREHOUSE_ID,
+        warehouseName: SINGLE_WAREHOUSE_NAME,
+        onHand: available + initialReserved,
+        reserved: initialReserved,
+        available,
+        incoming: 0,
+        lowStockAlert: false,
+        updatedAt: new Date(),
+      });
+    }
+
+    if (action === "reserve") {
+      inventory.reserved = Math.max(0, Number(inventory.reserved || 0) + safeQuantity);
+    } else if (action === "release" || action === "commit") {
+      inventory.reserved = Math.max(0, Number(inventory.reserved || 0) - safeQuantity);
+    }
+
+    inventory.available = available;
+    inventory.onHand = Math.max(0, inventory.available + Number(inventory.reserved || 0));
+    inventory.lowStockAlert =
+      inventory.reorderPoint !== undefined &&
+      inventory.reorderPoint !== null &&
+      inventory.available <= Number(inventory.reorderPoint || 0);
+    inventory.updatedAt = new Date();
+
+    await inventory.save({ session });
   }
 
   calculatePricing(items = [], payload = {}) {

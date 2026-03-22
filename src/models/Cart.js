@@ -14,6 +14,7 @@ const cartItemSchema = new mongoose.Schema(
     variantLabel: { type: String, required: true },
     image: { type: String, required: true },
     unitPrice: { type: Number, required: true },
+    availableStock: { type: Number, default: 0, min: 0 },
     quantity: { type: Number, required: true, min: 1 },
     addedAt: { type: Date, default: Date.now },
   },

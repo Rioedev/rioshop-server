@@ -1,7 +1,9 @@
 import Product from "../models/Product.js";
+import Inventory from "../models/Inventory.js";
 import { CACHE_KEYS, CACHE_TTL } from "../constants/index.js";
 import { redisClient } from "../config/redis.js";
 import { AppError } from "../utils/helpers.js";
+import { SINGLE_WAREHOUSE_ID, SINGLE_WAREHOUSE_NAME } from "../constants/warehouse.js";
 import {
   buildProductSku,
   buildVariantSku,
@@ -219,6 +221,7 @@ export class ProductService {
       const payload = await this.prepareProductPayload(data);
       const product = new Product(payload);
       await product.save();
+      await this.syncSingleWarehouseInventoryForProduct(product);
       return product;
     } catch (error) {
       this.handleWriteError(error);
@@ -246,6 +249,8 @@ export class ProductService {
       if (!product) {
         return null;
       }
+
+      await this.syncSingleWarehouseInventoryForProduct(product);
 
       // Invalidate cache
       const currentSlugCacheKey = `${CACHE_KEYS.PRODUCT}${product.slug}`;
@@ -338,6 +343,84 @@ export class ProductService {
     } catch (error) {
       throw error;
     }
+  }
+
+  async syncSingleWarehouseInventoryForProduct(product) {
+    if (!product?._id) {
+      return;
+    }
+
+    const variants = Array.isArray(product.variants) ? product.variants : [];
+    const variantSkus = variants
+      .map((variant) => variant?.sku?.toString().trim())
+      .filter(Boolean);
+
+    const existingRows = await Inventory.find({
+      productId: product._id,
+      warehouseId: SINGLE_WAREHOUSE_ID,
+    });
+    const existingBySku = new Map(
+      existingRows.map((row) => [row.variantSku?.toString().trim(), row]),
+    );
+
+    for (const variant of variants) {
+      const variantSku = (variant?.sku || "").toString().trim();
+      if (!variantSku) {
+        continue;
+      }
+
+      const currentRow = existingBySku.get(variantSku);
+      const reserved = Math.max(0, Number(currentRow?.reserved || 0));
+      const available = Math.max(0, Number(variant?.stock || 0));
+      const onHand = available + reserved;
+      const incoming = Math.max(0, Number(currentRow?.incoming || 0));
+      const reorderPoint =
+        currentRow?.reorderPoint === undefined ? null : currentRow.reorderPoint;
+      const reorderQty =
+        currentRow?.reorderQty === undefined ? null : currentRow.reorderQty;
+      const lowStockAlert =
+        reorderPoint !== null && reorderPoint !== undefined
+          ? available <= Number(reorderPoint || 0)
+          : Boolean(currentRow?.lowStockAlert);
+
+      await Inventory.findOneAndUpdate(
+        {
+          productId: product._id,
+          variantSku,
+          warehouseId: SINGLE_WAREHOUSE_ID,
+        },
+        {
+          productId: product._id,
+          variantSku,
+          warehouseId: SINGLE_WAREHOUSE_ID,
+          warehouseName: SINGLE_WAREHOUSE_NAME,
+          onHand,
+          reserved,
+          available,
+          incoming,
+          reorderPoint,
+          reorderQty,
+          lowStockAlert,
+          lastCountAt: currentRow?.lastCountAt || null,
+          updatedAt: new Date(),
+        },
+        { upsert: true, new: true },
+      );
+    }
+
+    if (variantSkus.length === 0) {
+      await Inventory.deleteMany({
+        productId: product._id,
+        warehouseId: SINGLE_WAREHOUSE_ID,
+      });
+      return;
+    }
+
+    await Inventory.deleteMany({
+      productId: product._id,
+      warehouseId: SINGLE_WAREHOUSE_ID,
+      variantSku: { $nin: variantSkus },
+    });
   }
 }
 
