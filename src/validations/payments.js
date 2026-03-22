@@ -11,6 +11,12 @@ export const createPaymentValidation = Joi.object({
     amount: Joi.number().min(1).optional(),
     currency: Joi.string().max(10).optional(),
     returnUrl: Joi.string().uri().optional(),
+    ipnUrl: Joi.string().uri().optional(),
+    requestType: Joi.string().trim().optional(),
+    paymentCode: Joi.string().trim().allow("").optional(),
+    orderGroupId: Joi.string().trim().allow("").optional(),
+    autoCapture: Joi.boolean().optional(),
+    lang: Joi.string().valid("vi", "en").optional(),
   }).required(),
 });
 

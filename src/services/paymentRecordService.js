@@ -10,12 +10,39 @@ import { AppError } from "../utils/helpers.js";
 
 export class PaymentRecordService {
   async initiatePayment(data) {
-    const { orderId, method, userId, amount, currency, ipAddress, returnUrl } = data;
+    const {
+      orderId,
+      method,
+      userId,
+      amount,
+      currency,
+      ipAddress,
+      returnUrl,
+      ipnUrl,
+      requestId,
+      paymentCode,
+      orderGroupId,
+      requestType,
+    } = data;
 
     try {
       const order = await Order.findById(orderId);
       if (!order) {
         throw new AppError("Order not found", 404);
+      }
+
+      const orderOwnerId = order.userId ? order.userId.toString() : null;
+      if (userId && orderOwnerId && orderOwnerId !== userId.toString()) {
+        throw new AppError("Order not found", 404);
+      }
+
+      if (order.paymentStatus === "paid") {
+        throw new AppError("Order has already been paid", 400);
+      }
+
+      const payableOrderStatuses = new Set(["pending", "confirmed", "packing", "shipping"]);
+      if (!payableOrderStatuses.has(order.status)) {
+        throw new AppError("Cannot initiate payment for this order status", 400);
       }
 
       const resolvedMethod = method || order.paymentMethod;
@@ -47,10 +74,18 @@ export class PaymentRecordService {
 
       try {
         if (resolvedMethod === "momo") {
-          gatewayResponse = await MomoPaymentService.createPayment(
-            payment._id.toString(),
-            resolvedAmount,
-          );
+          gatewayResponse = await MomoPaymentService.createPayment({
+            orderId: payment._id.toString(),
+            amount: resolvedAmount,
+            orderInfo: `Thanh toan don ${order.orderNumber || order._id.toString()}`,
+            redirectUrl: returnUrl,
+            ipnUrl,
+            requestId: requestId || payment._id.toString(),
+            extraData: "",
+            paymentCode: paymentCode || "",
+            orderGroupId: orderGroupId || "",
+            requestType: requestType || process.env.MOMO_REQUEST_TYPE || "payWithMethod",
+          });
         } else if (resolvedMethod === "vnpay") {
           gatewayResponse = await VNPaymentService.createPayment(
             payment._id.toString(),
@@ -61,6 +96,8 @@ export class PaymentRecordService {
           gatewayResponse = await ZaloPaymentService.createPayment(
             payment._id.toString(),
             resolvedAmount,
+            ipnUrl,
+            returnUrl,
           );
         } else if (
           resolvedMethod === "cod" ||

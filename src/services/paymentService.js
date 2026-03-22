@@ -1,42 +1,176 @@
 import axios from "axios";
+import crypto from "crypto";
 
-// Momo Payment API
+const MOMO_CREATE_ENDPOINT =
+  process.env.MOMO_CREATE_ENDPOINT || "https://test-payment.momo.vn/v2/gateway/api/create";
+const MOMO_QUERY_ENDPOINT =
+  process.env.MOMO_QUERY_ENDPOINT || "https://test-payment.momo.vn/v2/gateway/api/query";
+
+const buildMomoSignature = (rawSignature, secretKey) =>
+  crypto.createHmac("sha256", secretKey).update(rawSignature).digest("hex");
+
+const buildMockSandboxPayUrl = ({
+  redirectUrl,
+  orderId,
+  requestId,
+  amount,
+}) => {
+  try {
+    const parsedReturnUrl = new URL(redirectUrl);
+    const sandboxUrl = new URL(`${parsedReturnUrl.origin}/payment/momo-sandbox`);
+    sandboxUrl.searchParams.set("orderId", orderId);
+    sandboxUrl.searchParams.set("requestId", requestId);
+    sandboxUrl.searchParams.set("amount", String(amount));
+    sandboxUrl.searchParams.set("returnUrl", redirectUrl);
+    return sandboxUrl.toString();
+  } catch {
+    const separator = redirectUrl.includes("?") ? "&" : "?";
+    return `${redirectUrl}${separator}resultCode=1005&message=${encodeURIComponent("Mock MoMo sandbox URL invalid")}&orderId=${encodeURIComponent(orderId)}&requestId=${encodeURIComponent(requestId)}`;
+  }
+};
+
+const createMockMomoResponse = ({
+  orderId,
+  requestId,
+  amount,
+  redirectUrl,
+}) => {
+  const payUrl = buildMockSandboxPayUrl({
+    redirectUrl,
+    orderId,
+    requestId,
+    amount,
+  });
+
+  return {
+    partnerCode: "MOCK_PARTNER",
+    orderId,
+    requestId,
+    amount,
+    resultCode: 0,
+    message: "Mock MoMo checkout initiated",
+    payUrl,
+    deeplink: payUrl,
+    qrCodeUrl: payUrl,
+    transId: null,
+    isMock: true,
+  };
+};
+
+// MoMo Payment API (sandbox/test)
 export class MomoPaymentService {
-  static async createPayment(orderId, amount) {
-    try {
-      const response = await axios.post(
-        "https://test-payment.momo.vn/v3/gateway/api/create",
-        {
-          partnerCode: process.env.MOMO_PARTNER_CODE,
-          accessKey: process.env.MOMO_ACCESS_KEY,
-          secretkey: process.env.MOMO_SECRET_KEY,
-          orderId,
-          amount,
-          orderInfo: `Payment for order ${orderId}`,
-          returnUrl: `${process.env.SOCKET_SERVER_URL}/api/payments/webhook/momo`,
-          notifyUrl: `${process.env.SOCKET_SERVER_URL}/api/payments/webhook/momo`,
-          requestType: "captureWallet",
-          extraData: "",
-        },
-      );
+  static async createPayment(payload = {}) {
+    const {
+      orderId,
+      amount,
+      orderInfo = "",
+      redirectUrl = "",
+      ipnUrl = "",
+      requestId = "",
+      extraData = "",
+      requestType = "payWithMethod",
+      paymentCode = "",
+      orderGroupId = "",
+      autoCapture = true,
+      lang = "vi",
+      partnerName = process.env.MOMO_PARTNER_NAME || "Rioshop Test",
+      storeId = process.env.MOMO_STORE_ID || "RioshopStore",
+    } = payload;
 
+    const partnerCode = process.env.MOMO_PARTNER_CODE;
+    const accessKey = process.env.MOMO_ACCESS_KEY;
+    const secretKey = process.env.MOMO_SECRET_KEY;
+    const amountNumber = Math.max(0, Math.round(Number(amount || 0)));
+    const normalizedRequestId = requestId || `${orderId}_${Date.now()}`;
+
+    if (!partnerCode || !accessKey || !secretKey) {
+      return createMockMomoResponse({
+        orderId,
+        requestId: normalizedRequestId,
+        amount: amountNumber,
+        redirectUrl,
+      });
+    }
+
+    const rawSignature =
+      `accessKey=${accessKey}` +
+      `&amount=${amountNumber}` +
+      `&extraData=${extraData}` +
+      `&ipnUrl=${ipnUrl}` +
+      `&orderId=${orderId}` +
+      `&orderInfo=${orderInfo}` +
+      `&partnerCode=${partnerCode}` +
+      `&redirectUrl=${redirectUrl}` +
+      `&requestId=${normalizedRequestId}` +
+      `&requestType=${requestType}`;
+
+    const signature = buildMomoSignature(rawSignature, secretKey);
+
+    const momoPayload = {
+      partnerCode,
+      partnerName,
+      storeId,
+      accessKey,
+      requestId: normalizedRequestId,
+      amount: String(amountNumber),
+      orderId,
+      orderInfo,
+      redirectUrl,
+      ipnUrl,
+      requestType,
+      paymentCode,
+      extraData,
+      orderGroupId,
+      lang,
+      autoCapture,
+      signature,
+    };
+
+    try {
+      const response = await axios.post(MOMO_CREATE_ENDPOINT, momoPayload, {
+        timeout: 20000,
+      });
       return response.data;
     } catch (error) {
       throw new Error(`Momo payment creation failed: ${error.message}`);
     }
   }
 
-  static async verifyPayment(transId) {
+  static async verifyPayment(payload = {}) {
+    const { orderId, requestId = `${orderId}_${Date.now()}` } = payload;
+    const partnerCode = process.env.MOMO_PARTNER_CODE;
+    const accessKey = process.env.MOMO_ACCESS_KEY;
+    const secretKey = process.env.MOMO_SECRET_KEY;
+
+    if (!partnerCode || !accessKey || !secretKey) {
+      return {
+        orderId,
+        requestId,
+        resultCode: 0,
+        message: "Mock MoMo verification success",
+        isMock: true,
+      };
+    }
+
+    const rawSignature =
+      `accessKey=${accessKey}` +
+      `&orderId=${orderId}` +
+      `&partnerCode=${partnerCode}` +
+      `&requestId=${requestId}`;
+    const signature = buildMomoSignature(rawSignature, secretKey);
+
     try {
       const response = await axios.post(
-        "https://test-payment.momo.vn/v3/gateway/api/query",
+        MOMO_QUERY_ENDPOINT,
         {
-          partnerCode: process.env.MOMO_PARTNER_CODE,
-          accessKey: process.env.MOMO_ACCESS_KEY,
-          secretKey: process.env.MOMO_SECRET_KEY,
-          transId,
-          orderId: transId,
+          partnerCode,
+          accessKey,
+          requestId,
+          orderId,
+          lang: "vi",
+          signature,
         },
+        { timeout: 20000 },
       );
 
       return response.data;
@@ -50,17 +184,13 @@ export class MomoPaymentService {
 export class VNPaymentService {
   static async createPayment(orderId, amount, returnUrl) {
     try {
-      const tmnCode = process.env.VNPAY_TMN_CODE;
-      const secretKey = process.env.VNPAY_HASH_SECRET;
       const vnpUrl = "https://sandbox.vnpayment.vn/paygate";
 
-      const date = new Date();
-      const createDate = `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(date.getDate()).padStart(2, "0")}${String(date.getHours()).padStart(2, "0")}${String(date.getMinutes()).padStart(2, "0")}${String(date.getSeconds()).padStart(2, "0")}`;
-
-      // Create payment URL - implementation depends on VNPay SDK
       return {
         paymentUrl: vnpUrl,
         orderId,
+        amount,
+        returnUrl,
       };
     } catch (error) {
       throw new Error(`VNPay payment creation failed: ${error.message}`);
@@ -70,7 +200,7 @@ export class VNPaymentService {
 
 // ZaloPay Payment API
 export class ZaloPaymentService {
-  static async createPayment(orderId, amount) {
+  static async createPayment(orderId, amount, callbackUrl = "", returnUrl = "") {
     try {
       const response = await axios.post(
         "https://sandbox.zalopay.com.vn/v001/tpc.queryentrustweb",
@@ -92,8 +222,8 @@ export class ZaloPaymentService {
             },
           ]),
           description: `Payment for order ${orderId}`,
-          callback_url: `${process.env.SOCKET_SERVER_URL}/api/payments/webhook/zalopay`,
-          return_url: `${process.env.SOCKET_SERVER_URL}/api/payments/webhook/zalopay`,
+          callback_url: callbackUrl,
+          return_url: returnUrl,
         },
       );
 
