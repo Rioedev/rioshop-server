@@ -7,6 +7,7 @@ import {
   ZaloPaymentService,
 } from "./paymentService.js";
 import emailService from "./emailService.js";
+import notificationService from "./notificationService.js";
 import { AppError } from "../utils/helpers.js";
 
 export class PaymentRecordService {
@@ -129,9 +130,18 @@ export class PaymentRecordService {
       await payment.save();
 
       order.paymentId = payment._id;
+      const previousPaymentStatus = order.paymentStatus || "pending";
       order.paymentStatus = this.mapPaymentStatusToOrderStatus(payment.status);
       order.updatedAt = new Date();
       await order.save();
+
+      if (previousPaymentStatus !== order.paymentStatus) {
+        void notificationService.notifyPaymentStatusChanged(
+          order,
+          previousPaymentStatus,
+          order.paymentStatus,
+        );
+      }
 
       return {
         payment,
@@ -200,6 +210,11 @@ export class PaymentRecordService {
             previousPaymentStatus,
             nextPaymentStatus,
           );
+          void notificationService.notifyPaymentStatusChanged(
+            order,
+            previousPaymentStatus,
+            nextPaymentStatus,
+          );
         }
       }
 
@@ -248,6 +263,11 @@ export class PaymentRecordService {
 
         if (previousPaymentStatus !== nextPaymentStatus) {
           void emailService.sendPaymentStatusUpdate(
+            order,
+            previousPaymentStatus,
+            nextPaymentStatus,
+          );
+          void notificationService.notifyPaymentStatusChanged(
             order,
             previousPaymentStatus,
             nextPaymentStatus,

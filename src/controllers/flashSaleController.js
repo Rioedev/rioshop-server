@@ -5,6 +5,7 @@ import {
   getPaginationParams,
 } from "../utils/helpers.js";
 import flashSaleService from "../services/flashSaleService.js";
+import notificationService from "../services/notificationService.js";
 
 const ensureAdminAccess = (req, res) => {
   if (!req.user?.adminId) {
@@ -48,6 +49,9 @@ export const createFlashSale = asyncHandler(async (req, res) => {
     ...req.body,
     createdBy: req.user.adminId,
   });
+  if (sale?.isActive) {
+    void notificationService.notifyFlashSalePublished(sale);
+  }
   sendSuccess(res, 201, sale, "Flash sale created");
 });
 
@@ -56,9 +60,18 @@ export const updateFlashSale = asyncHandler(async (req, res) => {
     return;
   }
 
+  const existingSale = await flashSaleService.getFlashSaleById(req.params.id);
+  if (!existingSale) {
+    return sendError(res, 404, "Flash sale not found");
+  }
+
   const sale = await flashSaleService.updateFlashSale(req.params.id, req.body);
   if (!sale) {
     return sendError(res, 404, "Flash sale not found");
+  }
+
+  if (!existingSale.isActive && sale.isActive) {
+    void notificationService.notifyFlashSalePublished(sale);
   }
 
   sendSuccess(res, 200, sale, "Flash sale updated");

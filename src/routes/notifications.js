@@ -3,7 +3,9 @@ import { authenticateToken } from "../middlewares/auth.js";
 import { validateRequest } from "../middlewares/validation.js";
 import {
   getNotifications,
+  getUnreadCount,
   markAsRead,
+  markAllAsRead,
   deleteNotification,
 } from "../controllers/notificationController.js";
 import {
@@ -20,6 +22,12 @@ router.get(
   validateRequest(getNotificationsValidation),
   getNotifications,
 );
+
+// Get unread count
+router.get("/unread-count", authenticateToken, getUnreadCount);
+
+// Mark all as read
+router.put("/read-all", authenticateToken, markAllAsRead);
 
 // Mark as read
 router.put(

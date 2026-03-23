@@ -4,6 +4,7 @@ import Product from "../models/Product.js";
 import Inventory from "../models/Inventory.js";
 import couponService from "./couponService.js";
 import emailService from "./emailService.js";
+import notificationService from "./notificationService.js";
 import { SINGLE_WAREHOUSE_ID, SINGLE_WAREHOUSE_NAME } from "../constants/warehouse.js";
 import { AppError } from "../utils/helpers.js";
 
@@ -193,6 +194,7 @@ export class OrderService {
 
     const createdOrder = await this.getOrderById(createdOrderId, null);
     void emailService.sendOrderConfirmation(createdOrder);
+    void notificationService.notifyOrderCreated(createdOrder);
     return createdOrder;
   }
 
@@ -251,6 +253,7 @@ export class OrderService {
     const updatedOrder = await this.getOrderById(updatedOrderId, userId || null);
     if (previousStatus && previousStatus !== updatedOrder?.status) {
       void emailService.sendOrderStatusUpdate(updatedOrder, previousStatus);
+      void notificationService.notifyOrderStatusChanged(updatedOrder, previousStatus);
     }
     if (
       previousPaymentStatus &&
@@ -258,6 +261,11 @@ export class OrderService {
       previousPaymentStatus !== updatedOrder.paymentStatus
     ) {
       void emailService.sendPaymentStatusUpdate(
+        updatedOrder,
+        previousPaymentStatus,
+        updatedOrder.paymentStatus,
+      );
+      void notificationService.notifyPaymentStatusChanged(
         updatedOrder,
         previousPaymentStatus,
         updatedOrder.paymentStatus,
@@ -313,6 +321,7 @@ export class OrderService {
     const cancelledOrder = await this.getOrderById(cancelledOrderId, userId || null);
     if (previousStatus && previousStatus !== cancelledOrder?.status) {
       void emailService.sendOrderStatusUpdate(cancelledOrder, previousStatus);
+      void notificationService.notifyOrderStatusChanged(cancelledOrder, previousStatus);
     }
     return cancelledOrder;
   }
@@ -331,6 +340,11 @@ export class OrderService {
       await order.save();
       if (previousPaymentStatus !== order.paymentStatus) {
         void emailService.sendPaymentStatusUpdate(
+          order,
+          previousPaymentStatus,
+          order.paymentStatus,
+        );
+        void notificationService.notifyPaymentStatusChanged(
           order,
           previousPaymentStatus,
           order.paymentStatus,

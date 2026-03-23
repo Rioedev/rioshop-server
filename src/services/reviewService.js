@@ -1,5 +1,6 @@
 import Review from "../models/Review.js";
 import Product from "../models/Product.js";
+import notificationService from "./notificationService.js";
 import { AppError } from "../utils/helpers.js";
 
 export class ReviewService {
@@ -94,6 +95,7 @@ export class ReviewService {
 
       const previousStatus = review.status;
       const previousRating = review.rating;
+      const previousAdminReplyBody = review.adminReply?.body?.toString().trim() || "";
 
       const allowedFields = isAdmin
         ? [
@@ -124,6 +126,13 @@ export class ReviewService {
         review.status === "approved"
       ) {
         await this.syncProductRatings(review.productId);
+      }
+
+      if (isAdmin) {
+        const nextAdminReplyBody = review.adminReply?.body?.toString().trim() || "";
+        if (nextAdminReplyBody && nextAdminReplyBody !== previousAdminReplyBody) {
+          void this.notifyReviewReply(review._id);
+        }
       }
 
       return review;
@@ -178,6 +187,9 @@ export class ReviewService {
       }
 
       await this.syncProductRatings(review.productId);
+      if (adminReply) {
+        void this.notifyReviewReply(review._id);
+      }
       return review;
     } catch (error) {
       throw error;
@@ -229,6 +241,22 @@ export class ReviewService {
       });
     } catch (error) {
       throw error;
+    }
+  }
+
+  async notifyReviewReply(reviewId) {
+    try {
+      const review = await Review.findById(reviewId)
+        .select("userId productId adminReply")
+        .populate([{ path: "productId", select: "name slug" }]);
+
+      if (!review || !review.adminReply?.body) {
+        return;
+      }
+
+      await notificationService.notifyReviewReply(review);
+    } catch {
+      // Do not block review update flow due to notification error.
     }
   }
 }

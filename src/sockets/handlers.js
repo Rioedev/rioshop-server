@@ -1,3 +1,5 @@
+import { setSocketServer } from "./socketGateway.js";
+
 const initializeSocketHandlers = (io) => {
   io.on("connection", (socket) => {
     console.log(`✅ User connected: ${socket.id}`);
@@ -16,6 +18,10 @@ const initializeSocketHandlers = (io) => {
     socket.on("join-user", (userId) => {
       socket.join(`user:${userId}`);
       console.log(`User joined notification room: user:${userId}`);
+    });
+
+    socket.on("leave-user", (userId) => {
+      socket.leave(`user:${userId}`);
     });
 
     // Real-time inventory updates
@@ -62,6 +68,8 @@ const initializeSocketHandlers = (io) => {
   io.emitFlashSaleUpdate = (saleId, data) => {
     io.to(`flash-sale:${saleId}`).emit("flash-sale-updated", data);
   };
+
+  setSocketServer(io);
 
   return io;
 };
