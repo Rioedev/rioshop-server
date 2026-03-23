@@ -10,6 +10,7 @@
     "seed": "node scripts/seedStorefrontData.js",
     "seed:storefront": "node scripts/seedStorefrontData.js",
     "seed:fashion-demo": "node scripts/seedFashionDemoData.js",
+    "email:test": "node scripts/testEmail.js",
     "fix:user-indexes": "node scripts/fixUserReferralIndex.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

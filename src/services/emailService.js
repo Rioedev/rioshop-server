@@ -67,7 +67,7 @@ class EmailService {
   }
 
   getFromAddress() {
-    const fromEmail = firstNonEmptyString(process.env.SMTP_FROM_EMAIL, process.env.SMTP_USER);
+    const fromEmail = firstNonEmptyString(process.env.SMTP_FROM_EMAIL);
     const fromName = firstNonEmptyString(process.env.SMTP_FROM_NAME, "RioShop");
 
     if (!fromEmail) {
@@ -119,19 +119,36 @@ class EmailService {
     return this.transporter;
   }
 
+  shouldLog() {
+    if (process.env.EMAIL_LOG_VERBOSE !== undefined) {
+      return parseBoolean(process.env.EMAIL_LOG_VERBOSE, true);
+    }
+
+    return process.env.NODE_ENV !== "production";
+  }
+
   async sendMail(payload = {}) {
     const { to, subject, html, text = "", throwOnError = false } = payload;
 
     if (!this.isEnabled()) {
+      if (this.shouldLog()) {
+        console.warn("[email] skipped: email_disabled");
+      }
       return { success: false, skipped: true, reason: "email_disabled" };
     }
 
     if (!to) {
+      if (this.shouldLog()) {
+        console.warn("[email] skipped: missing_recipient", { subject });
+      }
       return { success: false, skipped: true, reason: "missing_recipient" };
     }
 
     const from = this.getFromAddress();
     if (!from) {
+      if (this.shouldLog()) {
+        console.warn("[email] skipped: missing_sender", { to, subject });
+      }
       return { success: false, skipped: true, reason: "missing_sender" };
     }
 
@@ -144,9 +161,23 @@ class EmailService {
         text,
       });
 
+      if (this.shouldLog()) {
+        console.info("[email] sent", {
+          to,
+          subject,
+          messageId: info.messageId,
+          accepted: info.accepted || [],
+          rejected: info.rejected || [],
+          response: info.response || "",
+        });
+      }
+
       return {
         success: true,
         messageId: info.messageId,
+        accepted: info.accepted || [],
+        rejected: info.rejected || [],
+        response: info.response || "",
       };
     } catch (error) {
       console.error("Email sending failed:", error?.message || error);
@@ -165,6 +196,12 @@ class EmailService {
   async sendOrderConfirmation(order) {
     const email = order?.customerSnapshot?.email?.trim();
     if (!email) {
+      if (this.shouldLog()) {
+        console.warn("[email] skipped: missing_order_email", {
+          orderId: order?._id?.toString?.() || "",
+          orderNumber: order?.orderNumber || "",
+        });
+      }
       return { success: false, skipped: true, reason: "missing_order_email" };
     }
 
@@ -208,6 +245,12 @@ class EmailService {
   async sendOrderStatusUpdate(order, previousStatus = "") {
     const email = order?.customerSnapshot?.email?.trim();
     if (!email) {
+      if (this.shouldLog()) {
+        console.warn("[email] skipped: missing_order_email", {
+          orderId: order?._id?.toString?.() || "",
+          orderNumber: order?.orderNumber || "",
+        });
+      }
       return { success: false, skipped: true, reason: "missing_order_email" };
     }
 
@@ -238,6 +281,14 @@ class EmailService {
   async sendPaymentStatusUpdate(order, previousPaymentStatus = "", nextPaymentStatus = "") {
     const email = order?.customerSnapshot?.email?.trim();
     if (!email) {
+      if (this.shouldLog()) {
+        console.warn("[email] skipped: missing_order_email", {
+          orderId: order?._id?.toString?.() || "",
+          orderNumber: order?.orderNumber || "",
+          previousPaymentStatus,
+          nextPaymentStatus,
+        });
+      }
       return { success: false, skipped: true, reason: "missing_order_email" };
     }
 
@@ -266,6 +317,13 @@ class EmailService {
 
   async sendPasswordReset({ email, userId, resetToken }) {
     if (!email || !userId || !resetToken) {
+      if (this.shouldLog()) {
+        console.warn("[email] skipped: invalid_payload_password_reset", {
+          email: Boolean(email),
+          userId: Boolean(userId),
+          resetToken: Boolean(resetToken),
+        });
+      }
       return { success: false, skipped: true, reason: "invalid_payload" };
     }
 
@@ -296,6 +354,11 @@ class EmailService {
   async sendWelcomeEmail(userData) {
     const email = userData?.email?.trim();
     if (!email) {
+      if (this.shouldLog()) {
+        console.warn("[email] skipped: missing_user_email", {
+          userId: userData?._id?.toString?.() || "",
+        });
+      }
       return { success: false, skipped: true, reason: "missing_user_email" };
     }
 
