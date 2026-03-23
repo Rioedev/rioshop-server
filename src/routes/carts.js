@@ -8,6 +8,7 @@ import {
   removeCartItem,
   clearCart,
   applyCartCoupon,
+  clearCartCoupon,
 } from "../controllers/cartController.js";
 import {
   addToCartValidation,
@@ -55,5 +56,8 @@ router.post(
   validateRequest(applyCartCouponValidation),
   applyCartCoupon,
 );
+
+// Clear coupon
+router.delete("/coupon", authenticateToken, clearCartCoupon);
 
 export default router;

@@ -1,6 +1,21 @@
 import Coupon from "../models/Coupon.js";
 import { AppError } from "../utils/helpers.js";
 
+const normalizeNullableNumber = (value) => {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const nextValue = Number(value);
+  return Number.isFinite(nextValue) ? nextValue : value;
+};
+
+const normalizeNullableInteger = (value) => {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+  const nextValue = Number(value);
+  if (!Number.isFinite(nextValue)) return value;
+  return Math.max(0, Math.floor(nextValue));
+};
+
 export class CouponService {
   async getCouponByCode(code) {
     try {
@@ -9,6 +24,44 @@ export class CouponService {
       }
 
       return await Coupon.findOne({ code: code.toUpperCase() });
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async getCoupons(filters = {}, options = {}) {
+    const { page = 1, limit = 20, sort = { createdAt: -1 } } = options;
+    const query = {};
+
+    if (filters.keyword) {
+      const regex = new RegExp(filters.keyword.trim(), "i");
+      query.$or = [{ code: regex }, { name: regex }];
+    }
+
+    if (filters.type) {
+      query.type = filters.type;
+    }
+
+    if (filters.isActive !== undefined && filters.isActive !== null) {
+      query.isActive = Boolean(filters.isActive);
+    }
+
+    try {
+      const skip = (page - 1) * limit;
+      const [coupons, totalDocs] = await Promise.all([
+        Coupon.find(query).sort(sort).skip(skip).limit(limit),
+        Coupon.countDocuments(query),
+      ]);
+
+      return {
+        docs: coupons,
+        totalDocs,
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(totalDocs / limit)),
+        hasPrevPage: page > 1,
+        hasNextPage: skip + coupons.length < totalDocs,
+      };
     } catch (error) {
       throw error;
     }
@@ -212,17 +265,72 @@ export class CouponService {
     }
   }
 
+  normalizeCouponPayload(data = {}) {
+    const payload = { ...data };
+
+    if (Object.prototype.hasOwnProperty.call(payload, "code")) {
+      payload.code = payload.code.toString().trim().toUpperCase();
+    }
+
+    if (Object.prototype.hasOwnProperty.call(payload, "name")) {
+      payload.name = payload.name.toString().trim();
+    }
+
+    if (Object.prototype.hasOwnProperty.call(payload, "value")) {
+      payload.value = Number(payload.value);
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, "maxDiscount")) {
+      payload.maxDiscount = normalizeNullableNumber(payload.maxDiscount);
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, "minOrderValue")) {
+      payload.minOrderValue = normalizeNullableNumber(payload.minOrderValue);
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, "usageLimit")) {
+      payload.usageLimit = normalizeNullableInteger(payload.usageLimit);
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, "perUserLimit")) {
+      payload.perUserLimit = normalizeNullableInteger(payload.perUserLimit);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(payload, "startsAt")) {
+      payload.startsAt = payload.startsAt ? new Date(payload.startsAt) : payload.startsAt;
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, "expiresAt")) {
+      payload.expiresAt = payload.expiresAt ? new Date(payload.expiresAt) : payload.expiresAt;
+    }
+
+    return payload;
+  }
+
+  assertTimeRange(startsAt, expiresAt) {
+    if (!startsAt || !expiresAt) {
+      return;
+    }
+
+    const startTime = new Date(startsAt).getTime();
+    const endTime = new Date(expiresAt).getTime();
+
+    if (Number.isNaN(startTime) || Number.isNaN(endTime)) {
+      throw new AppError("Coupon date range is invalid", 400);
+    }
+
+    if (startTime >= endTime) {
+      throw new AppError("startsAt must be before expiresAt", 400);
+    }
+  }
+
   async createCoupon(data) {
     try {
-      const existing = await Coupon.findOne({ code: data.code.toUpperCase() });
+      const payload = this.normalizeCouponPayload(data);
+
+      const existing = await Coupon.findOne({ code: payload.code });
       if (existing) {
         throw new AppError("Coupon code already exists", 409);
       }
 
-      const coupon = new Coupon({
-        ...data,
-        code: data.code.toUpperCase(),
-      });
+      this.assertTimeRange(payload.startsAt, payload.expiresAt);
+
+      const coupon = new Coupon(payload);
       await coupon.save();
       return coupon;
     } catch (error) {
@@ -232,12 +340,38 @@ export class CouponService {
 
   async updateCoupon(id, data) {
     try {
-      const updateData = { ...data };
-      if (updateData.code) {
-        updateData.code = updateData.code.toUpperCase();
+      const coupon = await Coupon.findById(id);
+      if (!coupon) {
+        return null;
       }
 
-      return await Coupon.findByIdAndUpdate(id, updateData, { new: true });
+      const payload = this.normalizeCouponPayload(data);
+
+      if (payload.code && payload.code !== coupon.code) {
+        const existingByCode = await Coupon.findOne({
+          code: payload.code,
+          _id: { $ne: id },
+        });
+        if (existingByCode) {
+          throw new AppError("Coupon code already exists", 409);
+        }
+      }
+
+      const startsAt = payload.startsAt !== undefined ? payload.startsAt : coupon.startsAt;
+      const expiresAt = payload.expiresAt !== undefined ? payload.expiresAt : coupon.expiresAt;
+      this.assertTimeRange(startsAt, expiresAt);
+
+      Object.assign(coupon, payload);
+      await coupon.save();
+      return coupon;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async deleteCoupon(id) {
+    try {
+      return await Coupon.findByIdAndDelete(id);
     } catch (error) {
       throw error;
     }

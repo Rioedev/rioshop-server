@@ -36,3 +36,8 @@ export const applyCartCoupon = asyncHandler(async (req, res) => {
   const result = await cartService.applyCoupon(req.user.userId, code);
   sendSuccess(res, 200, result, "Coupon applied");
 });
+
+export const clearCartCoupon = asyncHandler(async (req, res) => {
+  const cart = await cartService.clearCoupon(req.user.userId);
+  sendSuccess(res, 200, cart, "Coupon cleared");
+});
