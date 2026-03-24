@@ -1,13 +1,15 @@
 import express from "express";
-import { authenticateToken } from "../middlewares/auth.js";
+import { authenticateToken, authorizeRole } from "../middlewares/auth.js";
 import { validateRequest } from "../middlewares/validation.js";
 import {
+  getReviews,
   getReviewsForProduct,
   createReview,
   updateReview,
   deleteReview,
 } from "../controllers/reviewController.js";
 import {
+  getReviewsValidation,
   getProductReviewsValidation,
   createReviewValidation,
   reviewIdValidation,
@@ -15,6 +17,15 @@ import {
 } from "../validations/reviews.js";
 
 const router = express.Router();
+
+// Get reviews (admin)
+router.get(
+  "/",
+  authenticateToken,
+  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer", "sales"),
+  validateRequest(getReviewsValidation),
+  getReviews,
+);
 
 // Get reviews for product
 router.get(

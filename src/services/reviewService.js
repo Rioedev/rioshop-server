@@ -4,6 +4,53 @@ import notificationService from "./notificationService.js";
 import { AppError } from "../utils/helpers.js";
 
 export class ReviewService {
+  async getReviews(options = {}) {
+    const {
+      page = 1,
+      limit = 20,
+      sort = { createdAt: -1 },
+      productId,
+      includePending = true,
+      includeRejected = true,
+      search = "",
+    } = options;
+
+    try {
+      const query = {};
+
+      if (productId) {
+        query.productId = productId;
+      }
+
+      const statuses = ["approved"];
+      if (includePending) statuses.push("pending");
+      if (includeRejected) statuses.push("rejected");
+      query.status = { $in: statuses };
+
+      const trimmedSearch = search.trim();
+      if (trimmedSearch) {
+        query.$or = [
+          { title: { $regex: trimmedSearch, $options: "i" } },
+          { body: { $regex: trimmedSearch, $options: "i" } },
+          { variantSku: { $regex: trimmedSearch, $options: "i" } },
+          { "adminReply.body": { $regex: trimmedSearch, $options: "i" } },
+        ];
+      }
+
+      return await Review.paginate(query, {
+        page,
+        limit,
+        sort,
+        populate: [
+          { path: "userId", select: "_id fullName avatar" },
+          { path: "productId", select: "_id name slug" },
+        ],
+      });
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async getReviewsByProduct(productId, options = {}) {
     const {
       page = 1,
@@ -49,19 +96,27 @@ export class ReviewService {
 
   async createReview(userId, data, isAdmin = false) {
     try {
-      const existing = await Review.findOne({
-        userId,
-        productId: data.productId,
-        orderId: data.orderId,
-      });
+      const normalizedOrderId = data.orderId ? data.orderId : null;
+      const existing = normalizedOrderId
+        ? await Review.findOne({
+          userId,
+          productId: data.productId,
+          orderId: normalizedOrderId,
+        })
+        : await Review.findOne({
+          userId,
+          productId: data.productId,
+          $or: [{ orderId: null }, { orderId: { $exists: false } }],
+        });
 
       if (existing) {
-        throw new AppError("You have already reviewed this product for the order", 409);
+        throw new AppError("Bạn đã bình luận sản phẩm này rồi", 409);
       }
 
       const review = new Review({
         ...data,
         userId,
+        orderId: normalizedOrderId || undefined,
         status:
           isAdmin && ["pending", "approved", "rejected"].includes(data.status)
             ? data.status

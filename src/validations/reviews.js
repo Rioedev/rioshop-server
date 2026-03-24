@@ -2,6 +2,17 @@ import Joi from "joi";
 
 const objectId = Joi.string().pattern(/^[0-9a-fA-F]{24}$/);
 
+export const getReviewsValidation = Joi.object({
+  query: Joi.object({
+    page: Joi.number().integer().min(1).optional(),
+    limit: Joi.number().integer().min(1).max(100).optional(),
+    productId: objectId.optional(),
+    includePending: Joi.boolean().truthy("true").falsy("false").optional(),
+    includeRejected: Joi.boolean().truthy("true").falsy("false").optional(),
+    search: Joi.string().trim().max(120).optional(),
+  }).required(),
+});
+
 export const getProductReviewsValidation = Joi.object({
   params: Joi.object({
     productId: objectId.required(),
@@ -17,7 +28,7 @@ export const getProductReviewsValidation = Joi.object({
 export const createReviewValidation = Joi.object({
   body: Joi.object({
     productId: objectId.required(),
-    orderId: objectId.required(),
+    orderId: objectId.allow("", null).optional(),
     variantSku: Joi.string().allow("", null).optional(),
     rating: Joi.number().integer().min(1).max(5).required(),
     title: Joi.string().allow("", null).optional(),

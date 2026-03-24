@@ -11,7 +11,6 @@ const reviewSchema = new mongoose.Schema({
   orderId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Order",
-    required: true,
   },
   variantSku: String,
   rating: { type: Number, required: true, min: 1, max: 5 },

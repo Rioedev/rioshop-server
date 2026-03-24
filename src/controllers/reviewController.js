@@ -5,13 +5,28 @@ import {
 } from "../utils/helpers.js";
 import reviewService from "../services/reviewService.js";
 
+export const getReviews = asyncHandler(async (req, res) => {
+  const { page, limit } = getPaginationParams(req.query.page, req.query.limit);
+
+  const result = await reviewService.getReviews({
+    page,
+    limit,
+    productId: req.query.productId?.trim(),
+    includePending: req.query.includePending !== "false",
+    includeRejected: req.query.includeRejected !== "false",
+    search: req.query.search?.trim() || "",
+  });
+
+  sendSuccess(res, 200, result, "Reviews retrieved");
+});
+
 export const getReviewsForProduct = asyncHandler(async (req, res) => {
   const { page, limit } = getPaginationParams(req.query.page, req.query.limit);
   const result = await reviewService.getReviewsByProduct(req.params.productId, {
     page,
     limit,
-    includePending: req.query.includePending === "true",
-    includeRejected: req.query.includeRejected === "true",
+    includePending: false,
+    includeRejected: false,
   });
 
   sendSuccess(res, 200, result, "Reviews retrieved");
