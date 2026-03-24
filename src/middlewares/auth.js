@@ -28,7 +28,7 @@ export const authenticateToken = async (req, res, next) => {
         if (blacklistedToken === token) {
           return res.status(403).json({
             success: false,
-            message: "Token khÃ´ng há»£p lá»‡ hoáº·c háº¿t háº¡n",
+            message: "Token không hợp lệ hoặc hết hạn",
           });
         }
       } catch (error) {

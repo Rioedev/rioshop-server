@@ -8,6 +8,42 @@ export const shipmentIdValidation = Joi.object({
   }).required(),
 });
 
+export const ghnDistrictsValidation = Joi.object({
+  query: Joi.object({
+    provinceId: Joi.number().integer().positive().required(),
+  }).required(),
+});
+
+export const ghnWardsValidation = Joi.object({
+  query: Joi.object({
+    districtId: Joi.number().integer().positive().required(),
+  }).required(),
+});
+
+export const ghnFeeValidation = Joi.object({
+  body: Joi.object({
+    toDistrictId: Joi.number().integer().positive().required(),
+    toWardCode: Joi.string().trim().required(),
+    shippingMethod: Joi.string().valid("standard", "express", "same_day").optional(),
+    insuranceValue: Joi.number().min(0).optional(),
+    codAmount: Joi.number().min(0).optional(),
+    packageProfile: Joi.object({
+      weight: Joi.number().min(1).optional(),
+      length: Joi.number().min(1).optional(),
+      width: Joi.number().min(1).optional(),
+      height: Joi.number().min(1).optional(),
+    })
+      .unknown(false)
+      .optional(),
+    weight: Joi.number().min(1).optional(),
+    length: Joi.number().min(1).optional(),
+    width: Joi.number().min(1).optional(),
+    height: Joi.number().min(1).optional(),
+  })
+    .min(2)
+    .required(),
+});
+
 export const updateTrackingValidation = Joi.object({
   params: Joi.object({
     id: objectId.required(),

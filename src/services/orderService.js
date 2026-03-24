@@ -2,9 +2,11 @@ import Order from "../models/Order.js";
 import User from "../models/User.js";
 import Product from "../models/Product.js";
 import Inventory from "../models/Inventory.js";
+import Shipment from "../models/Shipment.js";
 import couponService from "./couponService.js";
 import emailService from "./emailService.js";
 import notificationService from "./notificationService.js";
+import { GHNShippingService } from "./shippingService.js";
 import { SINGLE_WAREHOUSE_ID, SINGLE_WAREHOUSE_NAME } from "../constants/warehouse.js";
 import { AppError } from "../utils/helpers.js";
 
@@ -75,10 +77,22 @@ export class OrderService {
     }
 
     const items = await this.resolveOrderItems(normalizedItems);
-    const shippingFeeInput =
+    const shippingCarrier = this.resolveShippingCarrier(data);
+    let shippingFeeInput =
       data.shippingFee !== undefined
         ? Number(data.shippingFee)
         : Number(data.pricing?.shippingFee || 0);
+
+    if (this.shouldUseGhnShipping(data.shippingMethod, shippingCarrier)) {
+      const ghnShippingFee = await this.resolveGhnShippingFee({
+        items,
+        shippingAddress: data.shippingAddress || {},
+        shippingMethod: data.shippingMethod || "standard",
+      });
+      if (Number.isFinite(ghnShippingFee)) {
+        shippingFeeInput = ghnShippingFee;
+      }
+    }
 
     let couponCode = data.couponCode || null;
     let couponDiscount = Number(data.couponDiscount || 0);
@@ -138,7 +152,7 @@ export class OrderService {
           paymentMethod: data.paymentMethod || "cod",
           paymentStatus: data.paymentStatus || "pending",
           shippingMethod: data.shippingMethod || "standard",
-          shippingCarrier: data.shippingCarrier || null,
+          shippingCarrier,
           shippingFee: pricing.shippingFee,
           status: nextStatus,
           note: data.note || "",
@@ -222,6 +236,20 @@ export class OrderService {
         previousPaymentStatus = order.paymentStatus || "pending";
         this.assertStatusTransition(order.status, status);
         await this.applyInventoryForStatusTransition(order.items || [], order.status, status, session);
+
+        const effectiveShippingCarrier =
+          order.shippingCarrier || this.resolveShippingCarrier({ shippingMethod: order.shippingMethod });
+
+        if (
+          status === "shipping" &&
+          order.status !== "shipping" &&
+          this.shouldUseGhnShipping(order.shippingMethod, effectiveShippingCarrier) &&
+          !order.shipmentId
+        ) {
+          const shipmentDoc = await this.createGhnShipmentForOrder(order, { session, note });
+          order.shipmentId = shipmentDoc._id;
+          order.shippingCarrier = "GHN";
+        }
 
         order.status = status;
         if (paymentStatus) {
@@ -427,7 +455,7 @@ export class OrderService {
     const products = await Product.find({
       _id: { $in: productIds },
       deletedAt: null,
-    }).select("_id name pricing variants media");
+    }).select("_id name pricing variants media weight dimensions");
 
     const productMap = new Map(products.map((product) => [product._id.toString(), product]));
 
@@ -495,6 +523,10 @@ export class OrderService {
         quantity: item.quantity,
         totalPrice: unitPrice * item.quantity,
         returnedQty: Number(item.returnedQty || 0),
+        packageWeightGr: Math.max(100, Number(product.weight || 0) || 300),
+        packageLengthCm: Math.max(10, Number(product.dimensions?.lengthCm || 0) || 20),
+        packageWidthCm: Math.max(10, Number(product.dimensions?.widthCm || 0) || 15),
+        packageHeightCm: Math.max(1, Number(product.dimensions?.heightCm || 0) || 4),
       });
     }
 
@@ -737,6 +769,201 @@ export class OrderService {
     inventory.updatedAt = new Date();
 
     await inventory.save({ session });
+  }
+
+  resolveShippingCarrier(data = {}) {
+    const rawCarrier = (data.shippingCarrier || "").toString().trim();
+    if (rawCarrier) {
+      return rawCarrier;
+    }
+    return data.shippingMethod === "same_day" ? "Ahamove" : "GHN";
+  }
+
+  shouldUseGhnShipping(shippingMethod = "", shippingCarrier = "") {
+    const carrier = (shippingCarrier || "").toString().trim().toUpperCase();
+    return carrier === "GHN" && shippingMethod !== "same_day";
+  }
+
+  extractGhnAddressCodes(shippingAddress = {}) {
+    const districtId = Number(
+      shippingAddress?.districtId ||
+        shippingAddress?.recipientDistrictId ||
+        shippingAddress?.ghnDistrictId ||
+        0,
+    );
+    const wardCode = (
+      shippingAddress?.wardCode ||
+      shippingAddress?.recipientWardCode ||
+      shippingAddress?.ghnWardCode ||
+      ""
+    )
+      .toString()
+      .trim();
+
+    if (!districtId || !wardCode) {
+      throw new AppError(
+        "Shipping address is missing GHN districtId/wardCode. Please select district and ward from GHN.",
+        400,
+      );
+    }
+
+    return { districtId, wardCode };
+  }
+
+  buildPackageProfileFromItems(items = []) {
+    const base = { weight: 0, length: 0, width: 0, height: 0 };
+
+    const profile = (items || []).reduce((acc, item) => {
+      const quantity = Math.max(1, Number(item.quantity || 0));
+      const unitWeight = Math.max(100, Number(item.packageWeightGr || 300));
+      const unitLength = Math.max(10, Number(item.packageLengthCm || 20));
+      const unitWidth = Math.max(10, Number(item.packageWidthCm || 15));
+      const unitHeight = Math.max(1, Number(item.packageHeightCm || 4));
+
+      acc.weight += unitWeight * quantity;
+      acc.length = Math.max(acc.length, unitLength);
+      acc.width = Math.max(acc.width, unitWidth);
+      acc.height += unitHeight * quantity;
+      return acc;
+    }, base);
+
+    if (!profile.weight) {
+      profile.weight = 300;
+      profile.length = 20;
+      profile.width = 15;
+      profile.height = 5;
+    }
+
+    profile.weight = Math.min(50000, Math.max(100, Math.round(profile.weight)));
+    profile.length = Math.min(200, Math.max(10, Math.round(profile.length)));
+    profile.width = Math.min(200, Math.max(10, Math.round(profile.width)));
+    profile.height = Math.min(200, Math.max(1, Math.round(profile.height)));
+
+    return profile;
+  }
+
+  async resolveGhnShippingFee(payload = {}) {
+    const { items = [], shippingAddress = {}, shippingMethod = "standard" } = payload;
+    const { districtId, wardCode } = this.extractGhnAddressCodes(shippingAddress);
+    const packageProfile = this.buildPackageProfileFromItems(items);
+    const insuranceValue = items.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
+
+    const fee = await GHNShippingService.calculateFee({
+      toDistrictId: districtId,
+      toWardCode: wardCode,
+      shippingMethod,
+      insuranceValue,
+      packageProfile,
+    });
+
+    return Number(fee.totalFee || 0);
+  }
+
+  buildShipmentAddressLine(shippingAddress = {}) {
+    const parts = [
+      shippingAddress?.line1,
+      shippingAddress?.wardName,
+      shippingAddress?.districtName || shippingAddress?.district,
+      shippingAddress?.provinceName || shippingAddress?.city,
+      shippingAddress?.country,
+    ]
+      .map((value) => (value || "").toString().trim())
+      .filter(Boolean);
+
+    return parts.join(", ");
+  }
+
+  buildGhnShipmentItems(orderItems = []) {
+    return (orderItems || []).map((item) => ({
+      name: (item.productName || "San pham").toString().trim(),
+      code: (item.variantSku || "").toString().trim(),
+      quantity: Math.max(1, Number(item.quantity || 1)),
+      price: Math.max(0, Number(item.unitPrice || 0)),
+      weight: Math.max(100, Number(item.packageWeightGr || 300)),
+    }));
+  }
+
+  async createGhnShipmentForOrder(order, { session, note = "" } = {}) {
+    if (!order) {
+      throw new AppError("Order not found for GHN shipment creation", 404);
+    }
+
+    const shippingAddress = order.shippingAddress || {};
+    const { districtId, wardCode } = this.extractGhnAddressCodes(shippingAddress);
+    const packageProfile = this.buildPackageProfileFromItems(order.items || []);
+    const codAmount = order.paymentMethod === "cod" ? Number(order.pricing?.total || 0) : 0;
+    const recipientName = (order.customerSnapshot?.name || "").toString().trim();
+    const recipientPhone = (order.customerSnapshot?.phone || "").toString().trim();
+
+    if (!recipientName || !recipientPhone) {
+      throw new AppError("Cannot create GHN shipment: missing recipient name or phone", 400);
+    }
+
+    const created = await GHNShippingService.createShipment({
+      recipientName,
+      recipientPhone,
+      recipientAddress: this.buildShipmentAddressLine(shippingAddress),
+      recipientDistrictId: districtId,
+      recipientWardCode: wardCode,
+      shippingMethod: order.shippingMethod || "standard",
+      codAmount,
+      insuranceValue: Math.max(0, Number(order.pricing?.total || 0)),
+      content: `RioShop order ${order.orderNumber || order._id.toString()}`,
+      note,
+      clientOrderCode: order.orderNumber || "",
+      items: this.buildGhnShipmentItems(order.items || []),
+      ...packageProfile,
+    });
+
+    const ghnData = created?.data || {};
+    const trackingCode =
+      ghnData.order_code ||
+      ghnData.orderCode ||
+      ghnData.order_code_out ||
+      ghnData.client_order_code ||
+      "";
+
+    if (!trackingCode) {
+      throw new AppError("GHN did not return tracking code for shipment", 502);
+    }
+
+    const trackingBase = (
+      process.env.GHN_TRACKING_BASE_URL || "https://donhang.ghn.vn/?order_code="
+    ).trim();
+    const trackingUrl = `${trackingBase}${encodeURIComponent(trackingCode)}`;
+    const estimatedDeliveryRaw =
+      ghnData.expected_delivery_time || ghnData.leadtime_order?.to_estimate_date || null;
+    const estimatedDelivery = estimatedDeliveryRaw ? new Date(estimatedDeliveryRaw) : null;
+
+    const shipmentDoc = new Shipment({
+      orderId: order._id,
+      carrier: "GHN",
+      trackingCode,
+      trackingUrl,
+      status: "ready",
+      events: [
+        {
+          status: "ready",
+          location: "",
+          note: "Shipment created on GHN",
+          at: new Date(),
+        },
+      ],
+      estimatedDelivery:
+        estimatedDelivery && !Number.isNaN(estimatedDelivery.getTime())
+          ? estimatedDelivery
+          : null,
+      recipientName: order.customerSnapshot?.name || "",
+      recipientPhone: order.customerSnapshot?.phone || "",
+      shippingAddress,
+      weight: packageProfile.weight,
+      codAmount,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    await shipmentDoc.save({ session });
+    return shipmentDoc;
   }
 
   calculatePricing(items = [], payload = {}) {
