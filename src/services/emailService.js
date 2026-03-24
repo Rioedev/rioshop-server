@@ -329,7 +329,7 @@ class EmailService {
 
     const storefrontUrl = this.getStorefrontUrl().replace(/\/+$/, "");
     const resetUrl = storefrontUrl
-      ? `${storefrontUrl}/login?resetUserId=${encodeURIComponent(userId)}&resetToken=${encodeURIComponent(resetToken)}`
+      ? `${storefrontUrl}/forgot-password?userId=${encodeURIComponent(userId)}&token=${encodeURIComponent(resetToken)}`
       : "";
 
     const html = `
