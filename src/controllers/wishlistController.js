@@ -19,3 +19,8 @@ export const removeFromWishlist = asyncHandler(async (req, res) => {
   );
   sendSuccess(res, 200, wishlist, "Item removed from wishlist");
 });
+
+export const clearWishlist = asyncHandler(async (req, res) => {
+  const wishlist = await wishlistService.clearWishlist(req.user.userId);
+  sendSuccess(res, 200, wishlist, "Wishlist cleared");
+});

@@ -5,6 +5,7 @@ import {
   getWishlist,
   addToWishlist,
   removeFromWishlist,
+  clearWishlist,
 } from "../controllers/wishlistController.js";
 import {
   addWishlistItemValidation,
@@ -23,6 +24,9 @@ router.post(
   validateRequest(addWishlistItemValidation),
   addToWishlist,
 );
+
+// Clear wishlist
+router.delete("/clear", authenticateToken, clearWishlist);
 
 // Remove from wishlist
 router.delete(

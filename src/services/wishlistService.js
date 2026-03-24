@@ -103,6 +103,7 @@ export class WishlistService {
 
     return {
       productId: itemData.productId,
+      productSlug: itemData.productSlug?.toString().trim() || "",
       variantSku: itemData.variantSku || "",
       name: itemData.name,
       image: itemData.image,

@@ -7,6 +7,7 @@ const wishlistItemSchema = new mongoose.Schema(
       ref: "Product",
       required: true,
     },
+    productSlug: { type: String, default: "" },
     variantSku: String,
     name: { type: String, required: true },
     image: { type: String, required: true },
