@@ -29,6 +29,7 @@ import inventoryRoutes from "./src/routes/inventories.js";
 import adminRoutes from "./src/routes/admins.js";
 import flashSaleRoutes from "./src/routes/flashSales.js";
 import brandConfigRoutes from "./src/routes/brandConfigs.js";
+import blogRoutes from "./src/routes/blogs.js";
 
 // Socket handlers
 import initializeSocketHandlers from "./src/sockets/handlers.js";
@@ -117,6 +118,7 @@ app.use("/api/inventories", inventoryRoutes);
 app.use("/api/admins", adminRoutes);
 app.use("/api/flash-sales", flashSaleRoutes);
 app.use("/api/brand-configs", brandConfigRoutes);
+app.use("/api/blogs", blogRoutes);
 
 // Root endpoint
 app.get("/", (req, res) => {
@@ -133,6 +135,7 @@ app.get("/", (req, res) => {
       carts: "/api/carts",
       orders: "/api/orders",
       payments: "/api/payments",
+      blogs: "/api/blogs",
     },
   });
 });
