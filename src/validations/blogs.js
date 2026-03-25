@@ -7,7 +7,9 @@ export const listBlogsValidation = Joi.object({
     q: Joi.string().trim().max(200).optional(),
     tag: Joi.string().trim().max(100).optional(),
     featured: Joi.boolean().optional(),
-    isPublished: Joi.boolean().optional(),
+    isPublished: Joi.alternatives()
+      .try(Joi.boolean(), Joi.string().valid("all"))
+      .optional(),
   }).required(),
 });
 

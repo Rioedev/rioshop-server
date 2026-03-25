@@ -5,6 +5,7 @@ import {
   sendError,
   sendSuccess,
 } from "../utils/helpers.js";
+import { uploadToCloudinary } from "../utils/cloudinary.js";
 import Blog from "../models/Blog.js";
 import blogService from "../services/blogService.js";
 
@@ -23,12 +24,16 @@ export const getAllBlogs = asyncHandler(async (req, res) => {
   const { page, limit } = getPaginationParams(req.query.page, req.query.limit);
   const { q, tag } = req.query;
   const featured = normalizeBoolean(req.query.featured);
-  const isPublished = normalizeBoolean(req.query.isPublished);
+  const publicationQuery = req.query.isPublished;
+  const isPublished = normalizeBoolean(publicationQuery);
+  const includeAllStatuses = publicationQuery === "all";
 
   const filters = {};
 
-  // Public list defaults to only published blogs
-  if (isPublished === undefined) {
+  if (includeAllStatuses) {
+    // Do not apply publication filter.
+  } else if (isPublished === undefined) {
+    // Public list defaults to only published blogs
     filters.isPublished = true;
     filters.publishedAt = { $lte: new Date() };
   } else if (isPublished) {
@@ -215,4 +220,32 @@ export const deleteBlog = asyncHandler(async (req, res) => {
   }
 
   sendSuccess(res, 200, deleted, "Blog deleted successfully");
+});
+
+/**
+ * POST /api/blogs/upload-image
+ * Upload image for blog editor
+ */
+export const uploadBlogImage = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    return sendError(res, 400, "File image is required");
+  }
+
+  if (!req.file.mimetype?.startsWith("image/")) {
+    return sendError(res, 400, "Only image files are allowed");
+  }
+
+  const base64 = req.file.buffer.toString("base64");
+  const dataUri = `data:${req.file.mimetype};base64,${base64}`;
+  const uploadResult = await uploadToCloudinary(dataUri, "rioshop/blogs");
+
+  sendSuccess(
+    res,
+    200,
+    {
+      url: uploadResult.secure_url,
+      publicId: uploadResult.public_id,
+    },
+    "Image uploaded successfully",
+  );
 });
