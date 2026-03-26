@@ -7,14 +7,34 @@ import {
 import productService from "../services/productService.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
 
+const escapeRegex = (value = "") => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const parseCsvValues = (value) =>
+  String(value ?? "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
 export const getAllProducts = asyncHandler(async (req, res) => {
   const { page, limit } = getPaginationParams(req.query.page, req.query.limit);
-  const { category, gender, minPrice, maxPrice, sort, status = "active" } = req.query;
+  const { q, category, gender, minPrice, maxPrice, color, size, sort, status = "active" } = req.query;
 
   const filters = {};
   if (status && status !== "all") filters.status = status;
   if (category) filters["category._id"] = category;
   if (gender) filters.gender = gender;
+
+  const keyword = String(q ?? "").trim();
+  if (keyword) {
+    const keywordRegex = { $regex: escapeRegex(keyword), $options: "i" };
+    filters.$or = [
+      { name: keywordRegex },
+      { brand: keywordRegex },
+      { sku: keywordRegex },
+      { shortDescription: keywordRegex },
+      { description: keywordRegex },
+    ];
+  }
+
   if (minPrice !== undefined || maxPrice !== undefined) {
     filters["pricing.salePrice"] = {};
     if (minPrice !== undefined) {
@@ -23,6 +43,37 @@ export const getAllProducts = asyncHandler(async (req, res) => {
     if (maxPrice !== undefined) {
       filters["pricing.salePrice"].$lte = Number(maxPrice);
     }
+  }
+
+  const colorValues = parseCsvValues(color);
+  const sizeValues = parseCsvValues(size);
+  if (colorValues.length > 0 || sizeValues.length > 0) {
+    const variantFilter = {
+      isActive: { $ne: false },
+    };
+
+    if (sizeValues.length > 0) {
+      variantFilter.size = {
+        $in: sizeValues,
+      };
+    }
+
+    if (colorValues.length > 0) {
+      variantFilter.$or = colorValues.map((item) => {
+        const escaped = escapeRegex(item);
+        const isHex = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(item);
+        return isHex
+          ? { "color.hex": { $regex: `^${escaped}$`, $options: "i" } }
+          : {
+              $or: [
+                { "color.name": { $regex: escaped, $options: "i" } },
+                { "color.hex": { $regex: `^${escaped}$`, $options: "i" } },
+              ],
+            };
+      });
+    }
+
+    filters.variants = { $elemMatch: variantFilter };
   }
 
   let parsedSort = { createdAt: -1 };

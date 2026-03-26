@@ -121,10 +121,13 @@ export const paginationValidation = Joi.object({
   query: Joi.object({
     page: Joi.number().integer().min(1),
     limit: Joi.number().integer().min(1).max(100),
+    q: Joi.string().trim().max(200).optional(),
     category: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
     gender: Joi.string().valid("men", "women", "unisex", "kids").optional(),
     minPrice: Joi.number().min(0).optional(),
     maxPrice: Joi.number().min(0).optional(),
+    color: Joi.string().trim().max(240).optional(),
+    size: Joi.string().trim().max(240).optional(),
     sort: Joi.string().optional(),
     status: Joi.string().valid("all", "draft", "active", "archived", "out_of_stock").optional(),
   }),
