@@ -21,7 +21,34 @@ const ORDER_STATUSES = new Set([
 ]);
 
 const CANCELLABLE_STATUSES = new Set(["pending", "confirmed"]);
-const RESERVATION_STATUSES = new Set(["pending", "confirmed", "packing", "shipping"]);
+const ORDER_FLOW_STATUSES = ["pending", "confirmed", "packing", "shipping", "delivered"];
+const INVENTORY_RESERVE_FROM_STATUS = (process.env.INVENTORY_RESERVE_FROM_STATUS || "pending")
+  .toString()
+  .trim()
+  .toLowerCase();
+const INVENTORY_COMMIT_AT_STATUS = (process.env.INVENTORY_COMMIT_AT_STATUS || "packing")
+  .toString()
+  .trim()
+  .toLowerCase();
+
+const buildInventoryPhaseConfig = () => {
+  const pendingIndex = ORDER_FLOW_STATUSES.indexOf("pending");
+  const packingIndex = ORDER_FLOW_STATUSES.indexOf("packing");
+  const reserveFromIndex = ORDER_FLOW_STATUSES.indexOf(INVENTORY_RESERVE_FROM_STATUS);
+  const commitAtIndex = ORDER_FLOW_STATUSES.indexOf(INVENTORY_COMMIT_AT_STATUS);
+
+  const safeReserveFromIndex = reserveFromIndex >= 0 ? reserveFromIndex : pendingIndex;
+  const safeCommitAtIndex =
+    commitAtIndex >= safeReserveFromIndex ? commitAtIndex : Math.max(packingIndex, safeReserveFromIndex);
+
+  return {
+    reservationStatuses: new Set(ORDER_FLOW_STATUSES.slice(safeReserveFromIndex, safeCommitAtIndex)),
+    committedStatuses: new Set(ORDER_FLOW_STATUSES.slice(safeCommitAtIndex)),
+  };
+};
+
+const { reservationStatuses: RESERVATION_STATUSES, committedStatuses: COMMITTED_INVENTORY_STATUSES } =
+  buildInventoryPhaseConfig();
 const TERMINAL_STATUSES = new Set(["cancelled", "returned"]);
 const ALLOWED_STATUS_TRANSITIONS = {
   pending: new Set(["confirmed", "packing", "shipping", "cancelled"]),
@@ -548,6 +575,10 @@ export class OrderService {
     return RESERVATION_STATUSES.has(status);
   }
 
+  statusHasCommittedInventory(status) {
+    return COMMITTED_INVENTORY_STATUSES.has(status);
+  }
+
   assertStatusTransition(currentStatus, nextStatus) {
     if (currentStatus === nextStatus) {
       return;
@@ -572,7 +603,7 @@ export class OrderService {
       return;
     }
 
-    if (status === "delivered") {
+    if (this.statusHasCommittedInventory(status)) {
       await this.applyInventoryAction(items, "sell", session);
     }
   }
@@ -584,13 +615,15 @@ export class OrderService {
 
     const currentReserved = this.statusHoldsReservation(currentStatus);
     const nextReserved = this.statusHoldsReservation(nextStatus);
+    const currentCommitted = this.statusHasCommittedInventory(currentStatus);
+    const nextCommitted = this.statusHasCommittedInventory(nextStatus);
 
-    if (currentReserved && nextReserved) {
+    if ((currentReserved && nextReserved) || (currentCommitted && nextCommitted)) {
       return;
     }
 
     if (currentReserved && !nextReserved) {
-      if (nextStatus === "delivered") {
+      if (nextCommitted) {
         await this.applyInventoryAction(items, "commit", session);
       } else {
         await this.applyInventoryAction(items, "release", session);
@@ -603,12 +636,14 @@ export class OrderService {
       return;
     }
 
-    if (currentStatus === "delivered" && nextStatus === "returned") {
-      await this.applyInventoryAction(items, "restock", session);
+    if (currentCommitted && !nextCommitted) {
+      if (nextStatus === "cancelled" || nextStatus === "returned") {
+        await this.applyInventoryAction(items, "restock", session);
+      }
       return;
     }
 
-    if (nextStatus === "delivered") {
+    if (!currentCommitted && !currentReserved && nextCommitted) {
       await this.applyInventoryAction(items, "sell", session);
     }
   }
