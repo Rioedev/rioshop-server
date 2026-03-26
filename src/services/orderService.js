@@ -10,18 +10,47 @@ import { GHNShippingService } from "./shippingService.js";
 import { SINGLE_WAREHOUSE_ID, SINGLE_WAREHOUSE_NAME } from "../constants/warehouse.js";
 import { AppError } from "../utils/helpers.js";
 
+const toPositiveNumber = (value, fallback) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const AUTO_CANCEL_PENDING_PAYMENT_MINUTES = toPositiveNumber(
+  process.env.AUTO_CANCEL_PENDING_PAYMENT_MINUTES,
+  30,
+);
+const AUTO_COMPLETE_DELIVERED_DAYS = toPositiveNumber(
+  process.env.AUTO_COMPLETE_DELIVERED_DAYS,
+  3,
+);
+const ONLINE_PENDING_PAYMENT_METHODS = (process.env.AUTO_CANCEL_PAYMENT_METHODS || "momo,vnpay,zalopay,card")
+  .split(",")
+  .map((item) => item.trim())
+  .filter(Boolean);
+const RETURN_COMPLAINT_ACTIVE_STATUSES = new Set(["pending", "approved"]);
+
 const ORDER_STATUSES = new Set([
   "pending",
   "confirmed",
   "packing",
+  "ready_to_ship",
   "shipping",
   "delivered",
+  "completed",
   "cancelled",
   "returned",
 ]);
 
 const CANCELLABLE_STATUSES = new Set(["pending", "confirmed"]);
-const ORDER_FLOW_STATUSES = ["pending", "confirmed", "packing", "shipping", "delivered"];
+const ORDER_FLOW_STATUSES = [
+  "pending",
+  "confirmed",
+  "packing",
+  "ready_to_ship",
+  "shipping",
+  "delivered",
+  "completed",
+];
 const INVENTORY_RESERVE_FROM_STATUS = (process.env.INVENTORY_RESERVE_FROM_STATUS || "pending")
   .toString()
   .trim()
@@ -49,13 +78,15 @@ const buildInventoryPhaseConfig = () => {
 
 const { reservationStatuses: RESERVATION_STATUSES, committedStatuses: COMMITTED_INVENTORY_STATUSES } =
   buildInventoryPhaseConfig();
-const TERMINAL_STATUSES = new Set(["cancelled", "returned"]);
+const TERMINAL_STATUSES = new Set(["cancelled", "returned", "completed"]);
 const ALLOWED_STATUS_TRANSITIONS = {
-  pending: new Set(["confirmed", "packing", "shipping", "cancelled"]),
-  confirmed: new Set(["packing", "shipping", "cancelled"]),
-  packing: new Set(["shipping", "cancelled"]),
+  pending: new Set(["confirmed", "packing", "ready_to_ship", "shipping", "cancelled"]),
+  confirmed: new Set(["packing", "ready_to_ship", "shipping", "cancelled"]),
+  packing: new Set(["ready_to_ship", "shipping", "cancelled"]),
+  ready_to_ship: new Set(["shipping", "cancelled"]),
   shipping: new Set(["delivered", "returned", "cancelled"]),
-  delivered: new Set(["returned"]),
+  delivered: new Set(["completed", "returned"]),
+  completed: new Set(),
   cancelled: new Set(),
   returned: new Set(),
 };
@@ -268,8 +299,8 @@ export class OrderService {
           order.shippingCarrier || this.resolveShippingCarrier({ shippingMethod: order.shippingMethod });
 
         if (
-          status === "shipping" &&
-          order.status !== "shipping" &&
+          (status === "ready_to_ship" || status === "shipping") &&
+          order.status !== status &&
           this.shouldUseGhnShipping(order.shippingMethod, effectiveShippingCarrier) &&
           !order.shipmentId
         ) {
@@ -453,6 +484,100 @@ export class OrderService {
     } catch (error) {
       throw error;
     }
+  }
+
+  async autoCancelExpiredPendingPaymentOrders(options = {}) {
+    const timeoutMinutes = toPositiveNumber(
+      options.timeoutMinutes,
+      AUTO_CANCEL_PENDING_PAYMENT_MINUTES,
+    );
+    const paymentMethods = Array.isArray(options.paymentMethods) && options.paymentMethods.length > 0
+      ? options.paymentMethods
+      : ONLINE_PENDING_PAYMENT_METHODS;
+    const cutoffDate = new Date(Date.now() - timeoutMinutes * 60 * 1000);
+
+    const candidateOrders = await Order.find({
+      status: "pending",
+      paymentStatus: "pending",
+      paymentMethod: { $in: paymentMethods },
+      createdAt: { $lte: cutoffDate },
+    }).select("_id orderNumber");
+
+    let processed = 0;
+    let failed = 0;
+
+    for (const order of candidateOrders) {
+      try {
+        await this.cancelOrder(order._id.toString(), null, {
+          note: `Auto-cancelled due to unpaid timeout (${timeoutMinutes} minute(s))`,
+          cancelledBy: "system",
+        });
+        processed += 1;
+      } catch (error) {
+        failed += 1;
+        console.error("[order-auto] failed to auto-cancel pending payment order", {
+          orderId: order._id?.toString?.() || "",
+          orderNumber: order.orderNumber || "",
+          error: error?.message || error,
+        });
+      }
+    }
+
+    return {
+      timeoutMinutes,
+      cutoffDate: cutoffDate.toISOString(),
+      matched: candidateOrders.length,
+      processed,
+      failed,
+    };
+  }
+
+  async autoCompleteDeliveredOrders(options = {}) {
+    const cooldownDays = toPositiveNumber(options.cooldownDays, AUTO_COMPLETE_DELIVERED_DAYS);
+    const cutoffDate = new Date(Date.now() - cooldownDays * 24 * 60 * 60 * 1000);
+
+    const candidateOrders = await Order.find({
+      status: "delivered",
+      timeline: {
+        $elemMatch: {
+          status: "delivered",
+          at: { $lte: cutoffDate },
+        },
+      },
+      $or: [
+        { returnRequest: { $exists: false } },
+        { "returnRequest.status": { $exists: false } },
+        { "returnRequest.status": { $nin: Array.from(RETURN_COMPLAINT_ACTIVE_STATUSES) } },
+      ],
+    }).select("_id orderNumber returnRequest.status");
+
+    let processed = 0;
+    let failed = 0;
+
+    for (const order of candidateOrders) {
+      try {
+        await this.updateOrderStatus(order._id.toString(), "completed", {
+          note: `Auto-completed after ${cooldownDays} day(s) without complaint`,
+          updatedBy: "system",
+        });
+        processed += 1;
+      } catch (error) {
+        failed += 1;
+        console.error("[order-auto] failed to auto-complete delivered order", {
+          orderId: order._id?.toString?.() || "",
+          orderNumber: order.orderNumber || "",
+          error: error?.message || error,
+        });
+      }
+    }
+
+    return {
+      cooldownDays,
+      cutoffDate: cutoffDate.toISOString(),
+      matched: candidateOrders.length,
+      processed,
+      failed,
+    };
   }
 
   normalizeItems(items = []) {

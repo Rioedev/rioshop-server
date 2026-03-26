@@ -30,6 +30,7 @@ import adminRoutes from "./src/routes/admins.js";
 import flashSaleRoutes from "./src/routes/flashSales.js";
 import brandConfigRoutes from "./src/routes/brandConfigs.js";
 import blogRoutes from "./src/routes/blogs.js";
+import orderLifecycleAutomationService from "./src/services/orderLifecycleAutomationService.js";
 
 // Socket handlers
 import initializeSocketHandlers from "./src/sockets/handlers.js";
@@ -162,18 +163,55 @@ initializeSocketHandlers(io);
 
 // Start server
 const PORT = process.env.PORT || 5000;
+let isShuttingDown = false;
 
 const startServer = async () => {
   await initializeApp();
 
   server.listen(PORT, () => {
     console.log(`🚀 Server is running on http://localhost:${PORT}`);
+    orderLifecycleAutomationService.start();
   });
 };
 
 startServer().catch((error) => {
   console.error("Failed to start server:", error);
   process.exit(1);
+});
+
+const shutdown = async (signal) => {
+  if (isShuttingDown) {
+    return;
+  }
+  isShuttingDown = true;
+
+  console.log(`[system] received ${signal}, shutting down...`);
+  orderLifecycleAutomationService.stop();
+
+  if (redisClient?.isOpen) {
+    try {
+      await redisClient.quit();
+      console.log("Redis disconnected");
+    } catch (error) {
+      console.error("Redis disconnect failed:", error);
+    }
+  }
+
+  server.close(() => {
+    process.exit(0);
+  });
+
+  setTimeout(() => {
+    process.exit(1);
+  }, 10000).unref();
+};
+
+process.on("SIGINT", () => {
+  void shutdown("SIGINT");
+});
+
+process.on("SIGTERM", () => {
+  void shutdown("SIGTERM");
 });
 
 export default app;

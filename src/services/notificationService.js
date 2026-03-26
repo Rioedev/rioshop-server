@@ -1,4 +1,4 @@
-import Notification from "../models/Notification.js";
+﻿import Notification from "../models/Notification.js";
 import Admin from "../models/Admin.js";
 import User from "../models/User.js";
 import { emitNotificationToUser } from "../sockets/socketGateway.js";
@@ -8,17 +8,34 @@ const ORDER_STATUS_LABELS = {
   pending: "Chờ xác nhận",
   confirmed: "Đã xác nhận",
   packing: "Đang đóng gói",
+  ready_to_ship: "Chờ lấy hàng",
   shipping: "Đang giao",
   delivered: "Đã giao",
+  completed: "Hoàn thành",
   cancelled: "Đã hủy",
   returned: "Đã trả",
 };
 
+const ONLINE_PAYMENT_METHODS = new Set(["momo", "vnpay", "zalopay", "card", "bank_transfer"]);
+
+const resolveOrderStatusLabel = (order = null, status = "") => {
+  const nextStatus = (status || "").toString().trim();
+  if (
+    nextStatus === "pending" &&
+    (order?.paymentStatus || "").toString().trim() === "pending" &&
+    ONLINE_PAYMENT_METHODS.has((order?.paymentMethod || "").toString().trim())
+  ) {
+    return "Chờ thanh toán";
+  }
+
+  return ORDER_STATUS_LABELS[nextStatus] || nextStatus;
+};
+
 const PAYMENT_STATUS_LABELS = {
-  pending: "Chờ thanh toán",
-  paid: "Đã thanh toán",
-  failed: "Thanh toán lỗi",
-  refunded: "Đã hoàn tiền",
+  pending: "Chá» thanh toÃ¡n",
+  paid: "ÄÃ£ thanh toÃ¡n",
+  failed: "Thanh toÃ¡n lá»—i",
+  refunded: "ÄÃ£ hoÃ n tiá»n",
 };
 
 export class NotificationService {
@@ -181,8 +198,8 @@ export class NotificationService {
         rows.push({
           userId: ownerUserId,
           type: "order_update",
-          title: "Đơn hàng đã được tạo",
-          body: `Đơn ${orderNumber} đã được ghi nhận. Chúng tôi sẽ xác nhận sớm nhất.`,
+          title: "ÄÆ¡n hÃ ng Ä‘Ã£ Ä‘Æ°á»£c táº¡o",
+          body: `ÄÆ¡n ${orderNumber} Ä‘Ã£ Ä‘Æ°á»£c ghi nháº­n. ChÃºng tÃ´i sáº½ xÃ¡c nháº­n sá»›m nháº¥t.`,
           link: `/orders/${orderId}`,
           channel: ["in_app"],
         });
@@ -193,8 +210,8 @@ export class NotificationService {
         rows.push({
           userId: adminId,
           type: "system",
-          title: "Đơn hàng mới",
-          body: `Có đơn ${orderNumber} vừa được tạo, vui lòng kiểm tra và xử lý.`,
+          title: "ÄÆ¡n hÃ ng má»›i",
+          body: `CÃ³ Ä‘Æ¡n ${orderNumber} vá»«a Ä‘Æ°á»£c táº¡o, vui lÃ²ng kiá»ƒm tra vÃ  xá»­ lÃ½.`,
           link: "/admin/orders",
           channel: ["in_app"],
         });
@@ -217,13 +234,13 @@ export class NotificationService {
 
       if (ownerUserId && nextStatus) {
         const previousStatusLabel =
-          ORDER_STATUS_LABELS[previousStatus] || previousStatus || "trạng thái trước";
-        const nextStatusLabel = ORDER_STATUS_LABELS[nextStatus] || nextStatus;
+          ORDER_STATUS_LABELS[previousStatus] || previousStatus || "tráº¡ng thÃ¡i trÆ°á»›c";
+        const nextStatusLabel = resolveOrderStatusLabel(order, nextStatus);
         rows.push({
           userId: ownerUserId,
           type: "order_update",
-          title: "Đơn hàng cập nhật trạng thái",
-          body: `Đơn ${orderNumber} đã chuyển từ ${previousStatusLabel} sang ${nextStatusLabel}.`,
+          title: "ÄÆ¡n hÃ ng cáº­p nháº­t tráº¡ng thÃ¡i",
+          body: `ÄÆ¡n ${orderNumber} Ä‘Ã£ chuyá»ƒn tá»« ${previousStatusLabel} sang ${nextStatusLabel}.`,
           link: `/orders/${orderId}`,
           channel: ["in_app"],
         });
@@ -235,8 +252,8 @@ export class NotificationService {
           rows.push({
             userId: adminId,
             type: "system",
-            title: "Đơn hàng bị hủy",
-            body: `Đơn ${orderNumber} đã bị hủy, vui lòng kiểm tra nguyên nhân.`,
+            title: "ÄÆ¡n hÃ ng bá»‹ há»§y",
+            body: `ÄÆ¡n ${orderNumber} Ä‘Ã£ bá»‹ há»§y, vui lÃ²ng kiá»ƒm tra nguyÃªn nhÃ¢n.`,
             link: "/admin/orders",
             channel: ["in_app"],
           });
@@ -259,13 +276,13 @@ export class NotificationService {
 
       if (ownerUserId && nextStatus) {
         const previousStatusLabel =
-          PAYMENT_STATUS_LABELS[previousStatus] || previousStatus || "chưa xác định";
+          PAYMENT_STATUS_LABELS[previousStatus] || previousStatus || "chÆ°a xÃ¡c Ä‘á»‹nh";
         const nextStatusLabel = PAYMENT_STATUS_LABELS[nextStatus] || nextStatus;
         rows.push({
           userId: ownerUserId,
           type: "order_update",
-          title: "Thanh toán đơn hàng đã cập nhật",
-          body: `Thanh toán đơn ${orderNumber} đã đổi từ ${previousStatusLabel} sang ${nextStatusLabel}.`,
+          title: "Thanh toÃ¡n Ä‘Æ¡n hÃ ng Ä‘Ã£ cáº­p nháº­t",
+          body: `Thanh toÃ¡n Ä‘Æ¡n ${orderNumber} Ä‘Ã£ Ä‘á»•i tá»« ${previousStatusLabel} sang ${nextStatusLabel}.`,
           link: `/orders/${orderId}`,
           channel: ["in_app"],
         });
@@ -277,8 +294,8 @@ export class NotificationService {
           rows.push({
             userId: adminId,
             type: "system",
-            title: "Cảnh báo thanh toán lỗi",
-            body: `Đơn ${orderNumber} có giao dịch thanh toán thất bại, cần kiểm tra lại.`,
+            title: "Cáº£nh bÃ¡o thanh toÃ¡n lá»—i",
+            body: `ÄÆ¡n ${orderNumber} cÃ³ giao dá»‹ch thanh toÃ¡n tháº¥t báº¡i, cáº§n kiá»ƒm tra láº¡i.`,
             link: "/admin/orders",
             channel: ["in_app"],
           });
@@ -293,7 +310,7 @@ export class NotificationService {
 
   async notifyFlashSalePublished(flashSale) {
     try {
-      const saleName = flashSale?.name?.toString?.().trim() || "Flash Sale mới";
+      const saleName = flashSale?.name?.toString?.().trim() || "Flash Sale má»›i";
       const startsAt = flashSale?.startsAt ? new Date(flashSale.startsAt) : null;
       const startsAtText =
         startsAt && !Number.isNaN(startsAt.getTime())
@@ -301,7 +318,7 @@ export class NotificationService {
               dateStyle: "short",
               timeStyle: "short",
             }).format(startsAt)
-          : "sớm nhất";
+          : "sá»›m nháº¥t";
 
       const users = await User.find({
         isDeleted: false,
@@ -313,8 +330,8 @@ export class NotificationService {
       const rows = users.map((user) => ({
         userId: user._id?.toString(),
         type: "promo",
-        title: "Flash Sale mới",
-        body: `${saleName} sẽ bắt đầu lúc ${startsAtText}. Vào ngay để không bỏ lỡ deal.`,
+        title: "Flash Sale má»›i",
+        body: `${saleName} sáº½ báº¯t Ä‘áº§u lÃºc ${startsAtText}. VÃ o ngay Ä‘á»ƒ khÃ´ng bá» lá»¡ deal.`,
         link: "/flash-sales",
         channel: ["in_app"],
       }));
@@ -326,8 +343,8 @@ export class NotificationService {
         adminIds.map((adminId) => ({
           userId: adminId,
           type: "system",
-          title: "Đã phát thông báo Flash Sale",
-          body: `${saleName} đã được phát tới người dùng.`,
+          title: "ÄÃ£ phÃ¡t thÃ´ng bÃ¡o Flash Sale",
+          body: `${saleName} Ä‘Ã£ Ä‘Æ°á»£c phÃ¡t tá»›i ngÆ°á»i dÃ¹ng.`,
           link: `/admin/flash-sales`,
           channel: ["in_app"],
         })),
@@ -348,7 +365,7 @@ export class NotificationService {
         "name" in productRef &&
         productRef.name
           ? productRef.name.toString().trim()
-          : "sản phẩm";
+          : "sáº£n pháº©m";
       const productSlug =
         productRef &&
         typeof productRef === "object" &&
@@ -364,8 +381,8 @@ export class NotificationService {
       await this.createNotification({
         userId: ownerUserId,
         type: "review_reply",
-        title: "Shop đã phản hồi đánh giá của bạn",
-        body: `Đánh giá cho ${productName} đã có phản hồi mới từ cửa hàng.`,
+        title: "Shop Ä‘Ã£ pháº£n há»“i Ä‘Ã¡nh giÃ¡ cá»§a báº¡n",
+        body: `ÄÃ¡nh giÃ¡ cho ${productName} Ä‘Ã£ cÃ³ pháº£n há»“i má»›i tá»« cá»­a hÃ ng.`,
         link: productSlug ? `/products/${productSlug}` : "/account",
         channel: ["in_app"],
       });
@@ -413,3 +430,4 @@ export class NotificationService {
 }
 
 export default new NotificationService();
+

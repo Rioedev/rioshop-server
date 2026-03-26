@@ -42,7 +42,13 @@ export class PaymentRecordService {
         throw new AppError("Order has already been paid", 400);
       }
 
-      const payableOrderStatuses = new Set(["pending", "confirmed", "packing", "shipping"]);
+      const payableOrderStatuses = new Set([
+        "pending",
+        "confirmed",
+        "packing",
+        "ready_to_ship",
+        "shipping",
+      ]);
       if (!payableOrderStatuses.has(order.status)) {
         throw new AppError("Cannot initiate payment for this order status", 400);
       }

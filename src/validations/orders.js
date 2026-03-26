@@ -7,7 +7,17 @@ export const getOrdersValidation = Joi.object({
     page: Joi.number().integer().min(1).optional(),
     limit: Joi.number().integer().min(1).max(100).optional(),
     status: Joi.string()
-      .valid("pending", "confirmed", "packing", "shipping", "delivered", "cancelled", "returned")
+      .valid(
+        "pending",
+        "confirmed",
+        "packing",
+        "ready_to_ship",
+        "shipping",
+        "delivered",
+        "completed",
+        "cancelled",
+        "returned",
+      )
       .optional(),
     paymentStatus: Joi.string().valid("pending", "paid", "refunded", "failed").optional(),
   }).required(),
@@ -60,7 +70,17 @@ export const createOrderValidation = Joi.object({
     shippingMethod: Joi.string().valid("standard", "express", "same_day").required(),
     shippingCarrier: Joi.string().allow("", null).optional(),
     status: Joi.string()
-      .valid("pending", "confirmed", "packing", "shipping", "delivered", "cancelled", "returned")
+      .valid(
+        "pending",
+        "confirmed",
+        "packing",
+        "ready_to_ship",
+        "shipping",
+        "delivered",
+        "completed",
+        "cancelled",
+        "returned",
+      )
       .optional(),
     note: Joi.string().allow("", null).optional(),
     adminNote: Joi.string().allow("", null).optional(),
@@ -74,7 +94,17 @@ export const updateOrderStatusValidation = Joi.object({
   }).required(),
   body: Joi.object({
     status: Joi.string()
-      .valid("pending", "confirmed", "packing", "shipping", "delivered", "cancelled", "returned")
+      .valid(
+        "pending",
+        "confirmed",
+        "packing",
+        "ready_to_ship",
+        "shipping",
+        "delivered",
+        "completed",
+        "cancelled",
+        "returned",
+      )
       .required(),
     note: Joi.string().allow("", null).optional(),
     paymentStatus: Joi.string().valid("pending", "paid", "refunded", "failed").optional(),

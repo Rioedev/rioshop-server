@@ -4,7 +4,7 @@ import orderService from "./orderService.js";
 import { AppError } from "../utils/helpers.js";
 
 const SHIPMENT_TO_ORDER_STATUS = {
-  ready: "confirmed",
+  ready: "ready_to_ship",
   picked_up: "shipping",
   in_transit: "shipping",
   out_for_delivery: "shipping",

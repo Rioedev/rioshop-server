@@ -18,8 +18,10 @@ export const ORDER_STATUS = {
   PENDING: "pending",
   CONFIRMED: "confirmed",
   PACKING: "packing",
+  READY_TO_SHIP: "ready_to_ship",
   SHIPPING: "shipping",
   DELIVERED: "delivered",
+  COMPLETED: "completed",
   CANCELLED: "cancelled",
   RETURNED: "returned",
 };

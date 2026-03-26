@@ -1,11 +1,13 @@
-import nodemailer from "nodemailer";
+﻿import nodemailer from "nodemailer";
 
 const ORDER_STATUS_LABELS = {
   pending: "Chờ xác nhận",
   confirmed: "Đã xác nhận",
-  packing: "Đang chuẩn bị",
+  packing: "Đang đóng gói",
+  ready_to_ship: "Chờ lấy hàng",
   shipping: "Đang giao",
   delivered: "Đã giao",
+  completed: "Hoàn thành",
   cancelled: "Đã hủy",
   returned: "Đã hoàn",
 };
@@ -17,6 +19,20 @@ const PAYMENT_STATUS_LABELS = {
   refunded: "Đã hoàn tiền",
 };
 
+const ONLINE_PAYMENT_METHODS = new Set(["momo", "vnpay", "zalopay", "card", "bank_transfer"]);
+
+const resolveOrderStatusLabel = (order = null, status = "") => {
+  const nextStatus = (status || "").toString().trim();
+  if (
+    nextStatus === "pending" &&
+    (order?.paymentStatus || "").toString().trim() === "pending" &&
+    ONLINE_PAYMENT_METHODS.has((order?.paymentMethod || "").toString().trim())
+  ) {
+    return "Chờ thanh toán";
+  }
+
+  return ORDER_STATUS_LABELS[nextStatus] || nextStatus || "pending";
+};
 const parseBoolean = (value, fallback = false) => {
   if (value === undefined || value === null || value === "") {
     return fallback;
@@ -209,7 +225,7 @@ class EmailService {
     const orderNumber = order?.orderNumber || order?._id?.toString() || "";
     const total = formatCurrency(order?.pricing?.total || 0, order?.pricing?.currency || "VND");
     const paymentMethod = (order?.paymentMethod || "cod").toString().toUpperCase();
-    const statusLabel = ORDER_STATUS_LABELS[order?.status] || (order?.status || "pending");
+    const statusLabel = resolveOrderStatusLabel(order, order?.status || "pending");
 
     const itemsHtml = (order?.items || [])
       .slice(0, 8)
@@ -221,14 +237,14 @@ class EmailService {
 
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
-        <h2 style="margin: 0 0 12px;">Xác nhận đơn hàng ${orderNumber}</h2>
-        <p>RioShop đã nhận đơn của bạn.</p>
-        <p><strong>Trạng thái:</strong> ${statusLabel}</p>
-        <p><strong>Tổng thanh toán:</strong> ${total}</p>
-        <p><strong>Phương thức thanh toán:</strong> ${paymentMethod}</p>
-        <p><strong>Sản phẩm:</strong></p>
+        <h2 style="margin: 0 0 12px;">XÃ¡c nháº­n Ä‘Æ¡n hÃ ng ${orderNumber}</h2>
+        <p>RioShop Ä‘Ã£ nháº­n Ä‘Æ¡n cá»§a báº¡n.</p>
+        <p><strong>Tráº¡ng thÃ¡i:</strong> ${statusLabel}</p>
+        <p><strong>Tá»•ng thanh toÃ¡n:</strong> ${total}</p>
+        <p><strong>PhÆ°Æ¡ng thá»©c thanh toÃ¡n:</strong> ${paymentMethod}</p>
+        <p><strong>Sáº£n pháº©m:</strong></p>
         <ul>${itemsHtml}</ul>
-        ${detailUrl ? `<p><a href="${detailUrl}">Xem chi tiết đơn hàng</a></p>` : ""}
+        ${detailUrl ? `<p><a href="${detailUrl}">Xem chi tiáº¿t Ä‘Æ¡n hÃ ng</a></p>` : ""}
       </div>
     `;
 
@@ -256,17 +272,17 @@ class EmailService {
 
     const orderNumber = order?.orderNumber || order?._id?.toString() || "";
     const nextStatus = order?.status || "pending";
-    const nextStatusLabel = ORDER_STATUS_LABELS[nextStatus] || nextStatus;
+    const nextStatusLabel = resolveOrderStatusLabel(order, nextStatus);
     const previousStatusLabel = ORDER_STATUS_LABELS[previousStatus] || previousStatus;
     const detailUrl = this.getOrderDetailUrl(order?._id?.toString());
 
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
-        <h2 style="margin: 0 0 12px;">Cập nhật đơn hàng ${orderNumber}</h2>
-        <p>Trạng thái đơn hàng của bạn đã được cập nhật.</p>
-        <p><strong>Từ:</strong> ${previousStatusLabel || "N/A"}</p>
+        <h2 style="margin: 0 0 12px;">Cáº­p nháº­t Ä‘Æ¡n hÃ ng ${orderNumber}</h2>
+        <p>Tráº¡ng thÃ¡i Ä‘Æ¡n hÃ ng cá»§a báº¡n Ä‘Ã£ Ä‘Æ°á»£c cáº­p nháº­t.</p>
+        <p><strong>Tá»«:</strong> ${previousStatusLabel || "N/A"}</p>
         <p><strong>Sang:</strong> ${nextStatusLabel}</p>
-        ${detailUrl ? `<p><a href="${detailUrl}">Xem chi tiết đơn hàng</a></p>` : ""}
+        ${detailUrl ? `<p><a href="${detailUrl}">Xem chi tiáº¿t Ä‘Æ¡n hÃ ng</a></p>` : ""}
       </div>
     `;
 
@@ -300,10 +316,10 @@ class EmailService {
 
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
-        <h2 style="margin: 0 0 12px;">Cập nhật thanh toán đơn ${orderNumber}</h2>
-        <p><strong>Từ:</strong> ${previousLabel}</p>
+        <h2 style="margin: 0 0 12px;">Cáº­p nháº­t thanh toÃ¡n Ä‘Æ¡n ${orderNumber}</h2>
+        <p><strong>Tá»«:</strong> ${previousLabel}</p>
         <p><strong>Sang:</strong> ${nextLabel}</p>
-        ${detailUrl ? `<p><a href="${detailUrl}">Xem chi tiết đơn hàng</a></p>` : ""}
+        ${detailUrl ? `<p><a href="${detailUrl}">Xem chi tiáº¿t Ä‘Æ¡n hÃ ng</a></p>` : ""}
       </div>
     `;
 
@@ -334,12 +350,12 @@ class EmailService {
 
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
-        <h2 style="margin: 0 0 12px;">Yêu cầu đặt lại mật khẩu</h2>
-        <p>Bạn vừa yêu cầu đặt lại mật khẩu cho tài khoản RioShop.</p>
-        ${resetUrl ? `<p><a href="${resetUrl}">Mở trang đặt lại mật khẩu</a></p>` : ""}
-        <p><strong>Mã user:</strong> ${userId}</p>
+        <h2 style="margin: 0 0 12px;">YÃªu cáº§u Ä‘áº·t láº¡i máº­t kháº©u</h2>
+        <p>Báº¡n vá»«a yÃªu cáº§u Ä‘áº·t láº¡i máº­t kháº©u cho tÃ i khoáº£n RioShop.</p>
+        ${resetUrl ? `<p><a href="${resetUrl}">Má»Ÿ trang Ä‘áº·t láº¡i máº­t kháº©u</a></p>` : ""}
+        <p><strong>MÃ£ user:</strong> ${userId}</p>
         <p><strong>Reset token:</strong> ${resetToken}</p>
-        <p>Token có hiệu lực trong 1 giờ.</p>
+        <p>Token cÃ³ hiá»‡u lá»±c trong 1 giá».</p>
       </div>
     `;
 
@@ -383,3 +399,4 @@ class EmailService {
 }
 
 export default new EmailService();
+
