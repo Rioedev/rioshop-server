@@ -1,5 +1,53 @@
-import AnalyticsEvent from "../models/AnalyticsEvent.js";
+﻿import AnalyticsEvent from "../models/AnalyticsEvent.js";
 import Order from "../models/Order.js";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const OPEN_ORDER_STATUSES = ["pending", "confirmed", "packing", "ready_to_ship", "shipping"];
+const COMPLETED_ORDER_STATUSES = ["delivered", "completed"];
+const CANCELLED_ORDER_STATUSES = ["cancelled", "returned"];
+
+const toDateKey = (date) => date.toISOString().slice(0, 10);
+const formatDateLabel = (dateKey) => {
+  const parts = dateKey.split("-");
+  if (parts.length !== 3) {
+    return dateKey;
+  }
+
+  return `${parts[2]}/${parts[1]}`;
+};
+
+const buildDateKeys = (startDate, endDate) => {
+  if (startDate.getTime() > endDate.getTime()) {
+    return [];
+  }
+
+  const cursor = new Date(Date.UTC(
+    startDate.getUTCFullYear(),
+    startDate.getUTCMonth(),
+    startDate.getUTCDate(),
+  ));
+  const end = new Date(Date.UTC(
+    endDate.getUTCFullYear(),
+    endDate.getUTCMonth(),
+    endDate.getUTCDate(),
+  ));
+
+  const keys = [];
+  while (cursor.getTime() <= end.getTime()) {
+    keys.push(toDateKey(cursor));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+
+  return keys;
+};
+
+const safePercent = (numerator, denominator) => {
+  if (!denominator || denominator <= 0) {
+    return 0;
+  }
+
+  return Number(((numerator / denominator) * 100).toFixed(2));
+};
 
 export class AnalyticsService {
   async getEvents(filters = {}, options = {}) {
@@ -68,11 +116,25 @@ export class AnalyticsService {
     const now = new Date();
     const startDate = range.startDate
       ? new Date(range.startDate)
-      : new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      : new Date(now.getTime() - 30 * DAY_MS);
     const endDate = range.endDate ? new Date(range.endDate) : now;
+    const orderRangeMatch = {
+      createdAt: { $gte: startDate, $lte: endDate },
+    };
+    const pendingOver24hCutoff = new Date(now.getTime() - DAY_MS);
 
     try {
-      const [eventBreakdown, topProducts, orderMetrics] = await Promise.all([
+      const [
+        eventBreakdown,
+        topProducts,
+        orderMetrics,
+        dailyOrderMetrics,
+        paymentMethodMetrics,
+        topProductsByRevenue,
+        topCategoriesByRevenue,
+        customerSegments,
+        pendingOver24hOrders,
+      ] = await Promise.all([
         AnalyticsEvent.aggregate([
           {
             $match: {
@@ -134,9 +196,7 @@ export class AnalyticsService {
         ]),
         Order.aggregate([
           {
-            $match: {
-              createdAt: { $gte: startDate, $lte: endDate },
-            },
+            $match: orderRangeMatch,
           },
           {
             $facet: {
@@ -145,7 +205,27 @@ export class AnalyticsService {
                   $group: {
                     _id: null,
                     totalOrders: { $sum: 1 },
-                    totalRevenue: { $sum: "$pricing.total" },
+                    grossRevenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
+                    netRevenue: {
+                      $sum: {
+                        $cond: [
+                          { $in: ["$status", CANCELLED_ORDER_STATUSES] },
+                          0,
+                          { $ifNull: ["$pricing.total", 0] },
+                        ],
+                      },
+                    },
+                    cancelledOrders: {
+                      $sum: { $cond: [{ $eq: ["$status", "cancelled"] }, 1, 0] },
+                    },
+                    returnedOrders: {
+                      $sum: { $cond: [{ $eq: ["$status", "returned"] }, 1, 0] },
+                    },
+                    nonCancelledOrders: {
+                      $sum: {
+                        $cond: [{ $in: ["$status", CANCELLED_ORDER_STATUSES] }, 0, 1],
+                      },
+                    },
                   },
                 },
               ],
@@ -156,10 +236,237 @@ export class AnalyticsService {
                     count: { $sum: 1 },
                   },
                 },
+                {
+                  $sort: { count: -1 },
+                },
               ],
             },
           },
         ]),
+        Order.aggregate([
+          {
+            $match: orderRangeMatch,
+          },
+          {
+            $group: {
+              _id: {
+                $dateToString: {
+                  format: "%Y-%m-%d",
+                  date: "$createdAt",
+                },
+              },
+              revenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
+              total: { $sum: 1 },
+              pending: {
+                $sum: {
+                  $cond: [{ $in: ["$status", OPEN_ORDER_STATUSES] }, 1, 0],
+                },
+              },
+              completed: {
+                $sum: {
+                  $cond: [{ $in: ["$status", COMPLETED_ORDER_STATUSES] }, 1, 0],
+                },
+              },
+              cancelled: {
+                $sum: {
+                  $cond: [{ $in: ["$status", CANCELLED_ORDER_STATUSES] }, 1, 0],
+                },
+              },
+            },
+          },
+          {
+            $sort: { _id: 1 },
+          },
+        ]),
+        Order.aggregate([
+          {
+            $match: orderRangeMatch,
+          },
+          {
+            $group: {
+              _id: { $ifNull: ["$paymentMethod", "unknown"] },
+              count: { $sum: 1 },
+              revenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
+            },
+          },
+          {
+            $sort: { count: -1 },
+          },
+        ]),
+        Order.aggregate([
+          {
+            $match: {
+              ...orderRangeMatch,
+              status: { $nin: CANCELLED_ORDER_STATUSES },
+            },
+          },
+          {
+            $unwind: "$items",
+          },
+          {
+            $match: {
+              "items.productId": { $exists: true, $ne: null },
+            },
+          },
+          {
+            $group: {
+              _id: "$items.productId",
+              fallbackName: { $first: "$items.productName" },
+              revenue: { $sum: { $ifNull: ["$items.totalPrice", 0] } },
+              quantity: { $sum: { $ifNull: ["$items.quantity", 0] } },
+              orderIds: { $addToSet: "$_id" },
+            },
+          },
+          {
+            $lookup: {
+              from: "products",
+              localField: "_id",
+              foreignField: "_id",
+              as: "product",
+            },
+          },
+          {
+            $unwind: {
+              path: "$product",
+              preserveNullAndEmptyArrays: true,
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              productId: "$_id",
+              name: { $ifNull: ["$product.name", "$fallbackName"] },
+              slug: "$product.slug",
+              revenue: 1,
+              quantity: 1,
+              orders: { $size: "$orderIds" },
+            },
+          },
+          {
+            $sort: { revenue: -1 },
+          },
+          {
+            $limit: 10,
+          },
+        ]),
+        Order.aggregate([
+          {
+            $match: {
+              ...orderRangeMatch,
+              status: { $nin: CANCELLED_ORDER_STATUSES },
+            },
+          },
+          {
+            $unwind: "$items",
+          },
+          {
+            $lookup: {
+              from: "products",
+              localField: "items.productId",
+              foreignField: "_id",
+              as: "product",
+            },
+          },
+          {
+            $unwind: {
+              path: "$product",
+              preserveNullAndEmptyArrays: true,
+            },
+          },
+          {
+            $addFields: {
+              categoryId: {
+                $ifNull: [{ $toString: "$product.category._id" }, "uncategorized"],
+              },
+              categoryName: {
+                $ifNull: ["$product.category.name", "Khong phan loai"],
+              },
+              lineRevenue: { $ifNull: ["$items.totalPrice", 0] },
+              lineQuantity: { $ifNull: ["$items.quantity", 0] },
+            },
+          },
+          {
+            $group: {
+              _id: {
+                categoryId: "$categoryId",
+                categoryName: "$categoryName",
+              },
+              revenue: { $sum: "$lineRevenue" },
+              quantity: { $sum: "$lineQuantity" },
+              orderIds: { $addToSet: "$_id" },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              categoryId: "$_id.categoryId",
+              name: "$_id.categoryName",
+              revenue: 1,
+              quantity: 1,
+              orders: { $size: "$orderIds" },
+            },
+          },
+          {
+            $sort: { revenue: -1 },
+          },
+          {
+            $limit: 8,
+          },
+        ]),
+        Order.aggregate([
+          {
+            $match: {
+              ...orderRangeMatch,
+              userId: { $exists: true, $ne: null },
+            },
+          },
+          {
+            $group: {
+              _id: "$userId",
+            },
+          },
+          {
+            $lookup: {
+              from: "orders",
+              let: { customerId: "$_id" },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: {
+                      $and: [
+                        { $eq: ["$userId", "$$customerId"] },
+                        { $lt: ["$createdAt", startDate] },
+                      ],
+                    },
+                  },
+                },
+                {
+                  $limit: 1,
+                },
+              ],
+              as: "beforeRange",
+            },
+          },
+          {
+            $group: {
+              _id: null,
+              newCustomers: {
+                $sum: {
+                  $cond: [{ $eq: [{ $size: "$beforeRange" }, 0] }, 1, 0],
+                },
+              },
+              returningCustomers: {
+                $sum: {
+                  $cond: [{ $gt: [{ $size: "$beforeRange" }, 0] }, 1, 0],
+                },
+              },
+            },
+          },
+        ]),
+        Order.countDocuments({
+          status: { $in: OPEN_ORDER_STATUSES },
+          createdAt: { $lte: pendingOver24hCutoff },
+        }),
       ]);
 
       const eventsByType = eventBreakdown.reduce((acc, item) => {
@@ -167,40 +474,112 @@ export class AnalyticsService {
         return acc;
       }, {});
 
-      const totalEvents = eventBreakdown.reduce(
-        (sum, item) => sum + item.count,
-        0,
-      );
-      const purchaseCount = eventsByType.purchase || 0;
-      const pageViewCount = eventsByType.page_view || 0;
+      const totalEvents = eventBreakdown.reduce((sum, item) => sum + item.count, 0);
+      const purchaseCount = Number(eventsByType.purchase || 0);
+      const pageViewCount = Number(eventsByType.page_view || 0);
+      const productViewCount = Number(eventsByType.product_view || 0);
+      const addToCartCount = Number(eventsByType.add_to_cart || 0);
 
       const orderInfo = orderMetrics[0] || {};
       const totals = orderInfo.totals?.[0] || {
         totalOrders: 0,
-        totalRevenue: 0,
+        grossRevenue: 0,
+        netRevenue: 0,
+        cancelledOrders: 0,
+        returnedOrders: 0,
+        nonCancelledOrders: 0,
       };
       const ordersByStatus = (orderInfo.byStatus || []).reduce((acc, item) => {
         acc[item._id] = item.count;
         return acc;
       }, {});
+      const statusBreakdown = (orderInfo.byStatus || []).map((item) => ({
+        status: item._id,
+        count: Number(item.count || 0),
+      }));
+
+      const dateKeys = buildDateKeys(startDate, endDate);
+      const dailyMetricMap = new Map(
+        (dailyOrderMetrics || []).map((item) => [item._id, item]),
+      );
+
+      const revenueByDate = dateKeys.map((dateKey) => {
+        const row = dailyMetricMap.get(dateKey);
+        return {
+          date: dateKey,
+          label: formatDateLabel(dateKey),
+          revenue: Number(row?.revenue || 0),
+          orders: Number(row?.total || 0),
+        };
+      });
+
+      const ordersByDate = dateKeys.map((dateKey) => {
+        const row = dailyMetricMap.get(dateKey);
+        return {
+          date: dateKey,
+          label: formatDateLabel(dateKey),
+          total: Number(row?.total || 0),
+          pending: Number(row?.pending || 0),
+          completed: Number(row?.completed || 0),
+          cancelled: Number(row?.cancelled || 0),
+        };
+      });
+
+      const paymentMethods = (paymentMethodMetrics || []).map((item) => ({
+        method: item._id || "unknown",
+        count: Number(item.count || 0),
+        revenue: Number(item.revenue || 0),
+      }));
+
+      const customerSegment = customerSegments?.[0] || {
+        newCustomers: 0,
+        returningCustomers: 0,
+      };
+
+      const safeTotalOrders = Number(totals.totalOrders || 0);
+      const safeGrossRevenue = Number(totals.grossRevenue || 0);
+      const safeNetRevenue = Number(totals.netRevenue || 0);
+      const safeNonCancelledOrders = Number(totals.nonCancelledOrders || 0);
+      const safeCancelledOrders = Number(totals.cancelledOrders || 0);
+      const safeReturnedOrders = Number(totals.returnedOrders || 0);
 
       return {
         range: { startDate, endDate },
         totals: {
           events: totalEvents,
-          orders: totals.totalOrders || 0,
-          revenue: totals.totalRevenue || 0,
+          orders: safeTotalOrders,
+          revenue: safeGrossRevenue,
+          grossRevenue: safeGrossRevenue,
+          netRevenue: safeNetRevenue,
+        },
+        summary: {
+          averageOrderValue:
+            safeNonCancelledOrders > 0
+              ? Number((safeNetRevenue / safeNonCancelledOrders).toFixed(2))
+              : 0,
+          cancellationRate: safePercent(safeCancelledOrders, safeTotalOrders),
+          returnRate: safePercent(safeReturnedOrders, safeTotalOrders),
+          pendingOver24hOrders: Number(pendingOver24hOrders || 0),
+          newCustomers: Number(customerSegment.newCustomers || 0),
+          returningCustomers: Number(customerSegment.returningCustomers || 0),
         },
         eventsByType,
         ordersByStatus,
+        statusBreakdown,
+        paymentMethods,
+        revenueByDate,
+        ordersByDate,
         topProducts,
+        topProductsByRevenue,
+        topCategoriesByRevenue,
         conversion: {
           purchases: purchaseCount,
           pageViews: pageViewCount,
-          purchaseToViewRate:
-            pageViewCount > 0
-              ? Number(((purchaseCount / pageViewCount) * 100).toFixed(2))
-              : 0,
+          productViews: productViewCount,
+          addToCarts: addToCartCount,
+          addToCartRate: safePercent(addToCartCount, productViewCount),
+          purchaseToViewRate: safePercent(purchaseCount, pageViewCount),
+          cartToPurchaseRate: safePercent(purchaseCount, addToCartCount),
         },
       };
     } catch (error) {
@@ -212,7 +591,7 @@ export class AnalyticsService {
     const now = new Date();
     const startDate = range.startDate
       ? new Date(range.startDate)
-      : new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      : new Date(now.getTime() - 7 * DAY_MS);
     const endDate = range.endDate ? new Date(range.endDate) : now;
 
     try {
