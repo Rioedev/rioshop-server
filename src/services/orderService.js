@@ -6,6 +6,7 @@ import Shipment from "../models/Shipment.js";
 import couponService from "./couponService.js";
 import emailService from "./emailService.js";
 import notificationService from "./notificationService.js";
+import { getSocketServer } from "../sockets/socketGateway.js";
 import { GHNShippingService } from "./shippingService.js";
 import { SINGLE_WAREHOUSE_ID, SINGLE_WAREHOUSE_NAME } from "../constants/warehouse.js";
 import { AppError } from "../utils/helpers.js";
@@ -267,6 +268,14 @@ export class OrderService {
     const createdOrder = await this.getOrderById(createdOrderId, null);
     void emailService.sendOrderConfirmation(createdOrder);
     void notificationService.notifyOrderCreated(createdOrder);
+    this.emitOrderRealtimeUpdate(createdOrder, {
+      action: "created",
+      source: "create_order",
+    });
+    this.emitInventoryRealtimeUpdatesFromOrder(createdOrder, {
+      action: "changed",
+      source: "create_order",
+    });
     return createdOrder;
   }
 
@@ -357,6 +366,14 @@ export class OrderService {
         updatedOrder.paymentStatus,
       );
     }
+    this.emitOrderRealtimeUpdate(updatedOrder, {
+      action: "status_changed",
+      source: "update_order_status",
+    });
+    this.emitInventoryRealtimeUpdatesFromOrder(updatedOrder, {
+      action: "changed",
+      source: "update_order_status",
+    });
     return updatedOrder;
   }
 
@@ -409,6 +426,14 @@ export class OrderService {
       void emailService.sendOrderStatusUpdate(cancelledOrder, previousStatus);
       void notificationService.notifyOrderStatusChanged(cancelledOrder, previousStatus);
     }
+    this.emitOrderRealtimeUpdate(cancelledOrder, {
+      action: "cancelled",
+      source: "cancel_order",
+    });
+    this.emitInventoryRealtimeUpdatesFromOrder(cancelledOrder, {
+      action: "changed",
+      source: "cancel_order",
+    });
     return cancelledOrder;
   }
 
@@ -436,10 +461,70 @@ export class OrderService {
           order.paymentStatus,
         );
       }
+      this.emitOrderRealtimeUpdate(order, {
+        action: "payment_status_changed",
+        source: "attach_payment",
+      });
 
       return order;
     } catch (error) {
       throw error;
+    }
+  }
+
+  emitOrderRealtimeUpdate(order, payload = {}) {
+    const io = getSocketServer();
+    if (!io?.emitOrderUpdate || !order) {
+      return;
+    }
+
+    const orderId = order._id?.toString?.() || order.id?.toString?.();
+    if (!orderId) {
+      return;
+    }
+
+    io.emitOrderUpdate(orderId, {
+      action: payload.action || "updated",
+      source: payload.source || "order_service",
+      orderId,
+      orderNumber: order.orderNumber || "",
+      status: order.status,
+      paymentStatus: order.paymentStatus,
+      updatedAt: order.updatedAt || new Date(),
+    });
+  }
+
+  emitInventoryRealtimeUpdatesFromOrder(order, payload = {}) {
+    const io = getSocketServer();
+    if (!io?.emitInventoryUpdate || !order) {
+      return;
+    }
+
+    const orderId = order._id?.toString?.() || order.id?.toString?.() || "";
+    const items = Array.isArray(order.items) ? order.items : [];
+    const seen = new Set();
+
+    for (const item of items) {
+      const productId = item?.productId?._id?.toString?.() || item?.productId?.toString?.();
+      const variantSku = (item?.variantSku || "").toString().trim();
+      if (!productId || !variantSku) {
+        continue;
+      }
+
+      const dedupeKey = `${productId}::${variantSku}`;
+      if (seen.has(dedupeKey)) {
+        continue;
+      }
+      seen.add(dedupeKey);
+
+      io.emitInventoryUpdate(productId, {
+        action: payload.action || "recalculated",
+        source: payload.source || "order_service",
+        orderId,
+        productId,
+        variantSku,
+        updatedAt: order.updatedAt || new Date(),
+      });
     }
   }
 

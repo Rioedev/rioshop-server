@@ -1,4 +1,5 @@
 import FlashSale from "../models/FlashSale.js";
+import { getSocketServer } from "../sockets/socketGateway.js";
 import { AppError } from "../utils/helpers.js";
 
 export class FlashSaleService {
@@ -138,6 +139,17 @@ export class FlashSaleService {
 
       slot.sold += qty;
       await flashSale.save();
+
+      const io = getSocketServer();
+      if (io?.emitFlashSaleUpdate) {
+        io.emitFlashSaleUpdate(flashSale._id.toString(), {
+          action: "slot_reserved",
+          source: "flash_sale_service",
+          flashSaleId: flashSale._id.toString(),
+          isActive: Boolean(flashSale.isActive),
+          updatedAt: flashSale.updatedAt || new Date(),
+        });
+      }
 
       return flashSale;
     } catch (error) {

@@ -8,7 +8,30 @@ import {
 } from "./paymentService.js";
 import emailService from "./emailService.js";
 import notificationService from "./notificationService.js";
+import { getSocketServer } from "../sockets/socketGateway.js";
 import { AppError } from "../utils/helpers.js";
+
+const emitOrderPaymentRealtimeUpdate = (order, payload = {}) => {
+  const io = getSocketServer();
+  if (!io?.emitOrderUpdate || !order) {
+    return;
+  }
+
+  const orderId = order._id?.toString?.() || order.id?.toString?.();
+  if (!orderId) {
+    return;
+  }
+
+  io.emitOrderUpdate(orderId, {
+    action: payload.action || "payment_status_changed",
+    source: payload.source || "payment_record_service",
+    orderId,
+    orderNumber: order.orderNumber || "",
+    status: order.status,
+    paymentStatus: order.paymentStatus,
+    updatedAt: order.updatedAt || new Date(),
+  });
+};
 
 export class PaymentRecordService {
   async initiatePayment(data) {
@@ -147,6 +170,10 @@ export class PaymentRecordService {
           previousPaymentStatus,
           order.paymentStatus,
         );
+        emitOrderPaymentRealtimeUpdate(order, {
+          action: "payment_initiated",
+          source: "initiate_payment",
+        });
       }
 
       return {
@@ -221,6 +248,10 @@ export class PaymentRecordService {
             previousPaymentStatus,
             nextPaymentStatus,
           );
+          emitOrderPaymentRealtimeUpdate(order, {
+            action: "payment_webhook_updated",
+            source: "process_webhook",
+          });
         }
       }
 
@@ -278,6 +309,10 @@ export class PaymentRecordService {
             previousPaymentStatus,
             nextPaymentStatus,
           );
+          emitOrderPaymentRealtimeUpdate(order, {
+            action: "payment_refunded",
+            source: "refund_payment",
+          });
         }
       }
 

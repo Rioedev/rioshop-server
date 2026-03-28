@@ -1,8 +1,10 @@
 import { setSocketServer } from "./socketGateway.js";
 
+const ADMIN_REALTIME_ROOM = "admin:realtime";
+
 const initializeSocketHandlers = (io) => {
   io.on("connection", (socket) => {
-    console.log(`✅ User connected: ${socket.id}`);
+    console.log(`Socket connected: ${socket.id}`);
 
     // Order tracking
     socket.on("join-order", (orderId) => {
@@ -24,6 +26,15 @@ const initializeSocketHandlers = (io) => {
       socket.leave(`user:${userId}`);
     });
 
+    // Admin realtime streams
+    socket.on("join-admin", () => {
+      socket.join(ADMIN_REALTIME_ROOM);
+    });
+
+    socket.on("leave-admin", () => {
+      socket.leave(ADMIN_REALTIME_ROOM);
+    });
+
     // Real-time inventory updates
     socket.on("watch-inventory", (productId) => {
       socket.join(`product:${productId}`);
@@ -42,9 +53,8 @@ const initializeSocketHandlers = (io) => {
       socket.leave(`flash-sale:${saleId}`);
     });
 
-    // Disconnect
     socket.on("disconnect", () => {
-      console.log(`❌ User disconnected: ${socket.id}`);
+      console.log(`Socket disconnected: ${socket.id}`);
     });
 
     socket.on("error", (error) => {
@@ -55,6 +65,7 @@ const initializeSocketHandlers = (io) => {
   // Broadcast helpers
   io.emitOrderUpdate = (orderId, data) => {
     io.to(`order:${orderId}`).emit("order-updated", data);
+    io.to(ADMIN_REALTIME_ROOM).emit("order-updated", data);
   };
 
   io.emitNotification = (userId, data) => {
@@ -63,10 +74,12 @@ const initializeSocketHandlers = (io) => {
 
   io.emitInventoryUpdate = (productId, inventory) => {
     io.to(`product:${productId}`).emit("inventory-updated", inventory);
+    io.to(ADMIN_REALTIME_ROOM).emit("inventory-updated", inventory);
   };
 
   io.emitFlashSaleUpdate = (saleId, data) => {
     io.to(`flash-sale:${saleId}`).emit("flash-sale-updated", data);
+    io.to(ADMIN_REALTIME_ROOM).emit("flash-sale-updated", data);
   };
 
   setSocketServer(io);

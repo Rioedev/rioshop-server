@@ -1,5 +1,6 @@
 import { asyncHandler, sendSuccess, getPaginationParams } from "../utils/helpers.js";
 import inventoryService from "../services/inventoryService.js";
+import { getSocketServer } from "../sockets/socketGateway.js";
 
 export const getLowStockItems = asyncHandler(async (req, res) => {
   const { page, limit } = getPaginationParams(req.query.page, req.query.limit);
@@ -27,5 +28,20 @@ export const getInventoryByVariantSku = asyncHandler(async (req, res) => {
 
 export const updateInventory = asyncHandler(async (req, res) => {
   const inventory = await inventoryService.updateInventory(req.params.variantSku, req.body);
+  const io = getSocketServer();
+  const productId = inventory.productId?.toString?.() || "";
+  if (io?.emitInventoryUpdate && productId) {
+    io.emitInventoryUpdate(productId, {
+      action: "inventory_updated",
+      source: "inventory_controller",
+      productId,
+      variantSku: inventory.variantSku || req.params.variantSku,
+      onHand: Number(inventory.onHand || 0),
+      reserved: Number(inventory.reserved || 0),
+      available: Number(inventory.available || 0),
+      incoming: Number(inventory.incoming || 0),
+      updatedAt: inventory.updatedAt || new Date(),
+    });
+  }
   sendSuccess(res, 200, inventory, "Inventory updated");
 });
