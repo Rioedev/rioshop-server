@@ -64,6 +64,8 @@ A modern, scalable Node.js backend API for an e-commerce platform with comprehen
    MONGO_URI=mongodb://localhost:27017/rioshop
    # Legacy alias still supported:
    # MONGODB_URI=mongodb://localhost:27017/rioshop
+   # Railway MongoDB template usually exposes:
+   # MONGO_URL=mongodb://...
 
    # Redis
    REDIS_URL=redis://localhost:6379

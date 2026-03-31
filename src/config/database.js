@@ -5,11 +5,15 @@ dotenv.config();
 
 const connectDB = async () => {
   try {
-    const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
+    const mongoUri =
+      process.env.MONGO_URI ||
+      process.env.MONGODB_URI ||
+      process.env.MONGO_URL ||
+      process.env.DATABASE_URL;
 
     if (typeof mongoUri !== "string" || !mongoUri.trim()) {
       throw new Error(
-        "Missing MongoDB connection string. Set MONGO_URI (preferred) or MONGODB_URI in environment variables.",
+        "Missing MongoDB connection string. Set one of: MONGO_URI (preferred), MONGODB_URI, MONGO_URL, DATABASE_URL.",
       );
     }
 
