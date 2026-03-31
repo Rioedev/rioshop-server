@@ -5,7 +5,15 @@ dotenv.config();
 
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGO_URI,{
+    const mongoUri = process.env.MONGO_URI || process.env.MONGODB_URI;
+
+    if (typeof mongoUri !== "string" || !mongoUri.trim()) {
+      throw new Error(
+        "Missing MongoDB connection string. Set MONGO_URI (preferred) or MONGODB_URI in environment variables.",
+      );
+    }
+
+    const conn = await mongoose.connect(mongoUri,{
       serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 45000,
       retryWrites: true,

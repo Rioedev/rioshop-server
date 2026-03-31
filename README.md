@@ -60,15 +60,16 @@ A modern, scalable Node.js backend API for an e-commerce platform with comprehen
    PORT=5000
    NODE_ENV=development
 
-   # Database
-   MONGODB_URI=mongodb://localhost:27017/rioshop
+   # Database (required)
+   MONGO_URI=mongodb://localhost:27017/rioshop
+   # Legacy alias still supported:
+   # MONGODB_URI=mongodb://localhost:27017/rioshop
 
    # Redis
-   REDIS_HOST=localhost
-   REDIS_PORT=6379
+   REDIS_URL=redis://localhost:6379
 
    # Cloudinary
-   CLOUDINARY_NAME=your_cloudinary_name
+   CLOUDINARY_CLOUD_NAME=your_cloudinary_name
    CLOUDINARY_API_KEY=your_api_key
    CLOUDINARY_API_SECRET=your_api_secret
 
@@ -82,9 +83,10 @@ A modern, scalable Node.js backend API for an e-commerce platform with comprehen
    SMTP_USER=your_email
    SMTP_PASS=your_password
 
-   # Payment Gateway
-   PAYMENT_API_KEY=your_payment_key
-   PAYMENT_API_SECRET=your_payment_secret
+   # Payment (MoMo)
+   MOMO_PARTNER_CODE=your_partner_code
+   MOMO_ACCESS_KEY=your_access_key
+   MOMO_SECRET_KEY=your_secret_key
    ```
 
 ## 🚀 Running the Server
