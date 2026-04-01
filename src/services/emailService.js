@@ -237,14 +237,14 @@ class EmailService {
 
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
-        <h2 style="margin: 0 0 12px;">XÃ¡c nháº­n Ä‘Æ¡n hÃ ng ${orderNumber}</h2>
-        <p>RioShop Ä‘Ã£ nháº­n Ä‘Æ¡n cá»§a báº¡n.</p>
-        <p><strong>Tráº¡ng thÃ¡i:</strong> ${statusLabel}</p>
-        <p><strong>Tá»•ng thanh toÃ¡n:</strong> ${total}</p>
-        <p><strong>PhÆ°Æ¡ng thá»©c thanh toÃ¡n:</strong> ${paymentMethod}</p>
-        <p><strong>Sáº£n pháº©m:</strong></p>
+        <h2 style="margin: 0 0 12px;">Xác nhận đơn hàng ${orderNumber}</h2>
+        <p>RioShop đã nhận đơn của bạn.</p>
+        <p><strong>Trạng thái:</strong> ${statusLabel}</p>
+        <p><strong>Tổng thanh toán:</strong> ${total}</p>
+        <p><strong>Phương thức thanh toán:</strong> ${paymentMethod}</p>
+        <p><strong>Sản phẩm:</strong></p>
         <ul>${itemsHtml}</ul>
-        ${detailUrl ? `<p><a href="${detailUrl}">Xem chi tiáº¿t Ä‘Æ¡n hÃ ng</a></p>` : ""}
+        ${detailUrl ? `<p><a href="${detailUrl}">Xem chi tiết đơn hàng</a></p>` : ""}
       </div>
     `;
 
@@ -278,11 +278,11 @@ class EmailService {
 
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
-        <h2 style="margin: 0 0 12px;">Cáº­p nháº­t Ä‘Æ¡n hÃ ng ${orderNumber}</h2>
-        <p>Tráº¡ng thÃ¡i Ä‘Æ¡n hÃ ng cá»§a báº¡n Ä‘Ã£ Ä‘Æ°á»£c cáº­p nháº­t.</p>
-        <p><strong>Tá»«:</strong> ${previousStatusLabel || "N/A"}</p>
+        <h2 style="margin: 0 0 12px;">Cập nhật đơn hàng ${orderNumber}</h2>
+        <p>Trạng thái đơn hàng của bạn đã được cập nhật.</p>
+        <p><strong>Từ:</strong> ${previousStatusLabel || "N/A"}</p>
         <p><strong>Sang:</strong> ${nextStatusLabel}</p>
-        ${detailUrl ? `<p><a href="${detailUrl}">Xem chi tiáº¿t Ä‘Æ¡n hÃ ng</a></p>` : ""}
+        ${detailUrl ? `<p><a href="${detailUrl}">Xem chi tiết đơn hàng</a></p>` : ""}
       </div>
     `;
 
@@ -316,10 +316,10 @@ class EmailService {
 
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
-        <h2 style="margin: 0 0 12px;">Cáº­p nháº­t thanh toÃ¡n Ä‘Æ¡n ${orderNumber}</h2>
-        <p><strong>Tá»«:</strong> ${previousLabel}</p>
+        <h2 style="margin: 0 0 12px;">Cập nhật thanh toán đơn ${orderNumber}</h2>
+        <p><strong>Từ:</strong> ${previousLabel}</p>
         <p><strong>Sang:</strong> ${nextLabel}</p>
-        ${detailUrl ? `<p><a href="${detailUrl}">Xem chi tiáº¿t Ä‘Æ¡n hÃ ng</a></p>` : ""}
+        ${detailUrl ? `<p><a href="${detailUrl}">Xem chi tiết đơn hàng</a></p>` : ""}
       </div>
     `;
 
@@ -350,12 +350,12 @@ class EmailService {
 
     const html = `
       <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
-        <h2 style="margin: 0 0 12px;">YÃªu cáº§u Ä‘áº·t láº¡i máº­t kháº©u</h2>
-        <p>Báº¡n vá»«a yÃªu cáº§u Ä‘áº·t láº¡i máº­t kháº©u cho tÃ i khoáº£n RioShop.</p>
-        ${resetUrl ? `<p><a href="${resetUrl}">Má»Ÿ trang Ä‘áº·t láº¡i máº­t kháº©u</a></p>` : ""}
-        <p><strong>MÃ£ user:</strong> ${userId}</p>
+        <h2 style="margin: 0 0 12px;">Yêu cầu đặt lại mật khẩu</h2>
+        <p>Bạn vừa yêu cầu đặt lại mật khẩu cho tài khoản RioShop.</p>
+        ${resetUrl ? `<p><a href="${resetUrl}">Mở trang đặt lại mật khẩu</a></p>` : ""}
+        <p><strong>Mã user:</strong> ${userId}</p>
         <p><strong>Reset token:</strong> ${resetToken}</p>
-        <p>Token cÃ³ hiá»‡u lá»±c trong 1 giá».</p>
+        <p>Token có hiệu lực trong 1 giờ.</p>
       </div>
     `;
 
