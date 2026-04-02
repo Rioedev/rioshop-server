@@ -69,6 +69,7 @@ const orderSchema = new mongoose.Schema({
   couponDiscount: Number,
   loyaltyPointsUsed: Number,
   loyaltyPointsEarned: Number,
+  loyaltyPointsAwardedAt: Date,
   paymentMethod: {
     type: String,
     enum: ["cod", "bank_transfer", "momo", "vnpay", "zalopay", "card"],

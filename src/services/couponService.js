@@ -1,4 +1,5 @@
 import Coupon from "../models/Coupon.js";
+import User from "../models/User.js";
 import { AppError } from "../utils/helpers.js";
 
 const normalizeNullableNumber = (value) => {
@@ -155,6 +156,37 @@ export class CouponService {
           shippingFee,
           "User is not eligible for this coupon",
         );
+      }
+
+      if (Array.isArray(coupon.eligibleTiers) && coupon.eligibleTiers.length > 0) {
+        if (!userId) {
+          return this.invalidResult(
+            orderValue,
+            shippingFee,
+            "Coupon requires member account",
+          );
+        }
+
+        const user = await User.findById(userId).select("loyalty.tier");
+        if (!user) {
+          return this.invalidResult(
+            orderValue,
+            shippingFee,
+            "User not found",
+          );
+        }
+        const userTier = (user?.loyalty?.tier || "bronze").toString().trim().toLowerCase();
+        const normalizedEligibleTiers = (coupon.eligibleTiers || [])
+          .map((item) => (item || "").toString().trim().toLowerCase())
+          .filter(Boolean);
+
+        if (!normalizedEligibleTiers.includes(userTier)) {
+          return this.invalidResult(
+            orderValue,
+            shippingFee,
+            `Coupon only applies to tier: ${normalizedEligibleTiers.join(", ")}`,
+          );
+        }
       }
 
       if (userId && coupon.perUserLimit) {

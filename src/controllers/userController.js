@@ -32,6 +32,7 @@ export const getAllCustomers = asyncHandler(async (req, res) => {
   const filters = {
     search: req.query.search?.trim(),
     status: req.query.status,
+    loyaltyTier: req.query.loyaltyTier?.trim().toLowerCase(),
   };
 
   if (req.query.isDeleted !== undefined) {

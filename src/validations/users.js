@@ -2,6 +2,7 @@ import Joi from "joi";
 
 const objectIdPattern = /^[0-9a-fA-F]{24}$/;
 const userStatusValidation = Joi.string().valid("active", "banned", "inactive");
+const userLoyaltyTierValidation = Joi.string().valid("bronze", "silver", "gold", "platinum");
 const phoneValidation = Joi.string().pattern(/^[0-9]{10,11}$/);
 
 const addressValidation = Joi.object({
@@ -65,6 +66,7 @@ export const adminCustomerListValidation = Joi.object({
     limit: Joi.number().integer().min(1).max(100).optional(),
     search: Joi.string().trim().allow("").optional(),
     status: userStatusValidation.optional(),
+    loyaltyTier: userLoyaltyTierValidation.optional(),
     isDeleted: Joi.boolean().optional(),
   }).required(),
 });

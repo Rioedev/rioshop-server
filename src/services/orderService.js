@@ -6,6 +6,8 @@ import Shipment from "../models/Shipment.js";
 import couponService from "./couponService.js";
 import emailService from "./emailService.js";
 import notificationService from "./notificationService.js";
+import loyaltyService from "./loyaltyService.js";
+import userService from "./userService.js";
 import { getSocketServer } from "../sockets/socketGateway.js";
 import { GHNShippingService } from "./shippingService.js";
 import { SINGLE_WAREHOUSE_ID, SINGLE_WAREHOUSE_NAME } from "../constants/warehouse.js";
@@ -195,6 +197,7 @@ export class OrderService {
       discount: couponDiscount,
       currency: data.pricing?.currency || "VND",
     });
+    const loyaltyPointsEarned = this.calculateEarnedLoyaltyPoints({ items, pricing });
 
     const customerSnapshot = await this.buildCustomerSnapshot(
       userId,
@@ -223,7 +226,8 @@ export class OrderService {
           couponCode,
           couponDiscount,
           loyaltyPointsUsed: Number(data.loyaltyPointsUsed || 0),
-          loyaltyPointsEarned: Number(data.loyaltyPointsEarned || 0),
+          loyaltyPointsEarned,
+          loyaltyPointsAwardedAt: null,
           paymentMethod: data.paymentMethod || "cod",
           paymentStatus: data.paymentStatus || "pending",
           shippingMethod,
@@ -244,6 +248,18 @@ export class OrderService {
           createdAt: new Date(),
           updatedAt: new Date(),
         });
+
+        if (nextStatus === "completed" && userId) {
+          if (loyaltyPointsEarned > 0) {
+            await userService.updateLoyaltyPoints(
+              userId,
+              loyaltyPointsEarned,
+              `order_completed:${order.orderNumber}`,
+              { session },
+            );
+          }
+          order.loyaltyPointsAwardedAt = new Date();
+        }
 
         await order.save({ session });
         createdOrderId = order._id;
@@ -316,6 +332,7 @@ export class OrderService {
         }
 
         previousStatus = order.status;
+        const isCompletingOrder = status === "completed" && order.status !== "completed";
         previousPaymentStatus = order.paymentStatus || "pending";
         this.assertStatusTransition(order.status, status);
         await this.applyInventoryForStatusTransition(order.items || [], order.status, status, session);
@@ -348,6 +365,30 @@ export class OrderService {
           at: new Date(),
           by: updatedBy,
         });
+
+        if (isCompletingOrder && order.userId && !order.loyaltyPointsAwardedAt) {
+          const fallbackEarnedPoints = this.calculateEarnedLoyaltyPoints({
+            items: order.items || [],
+            pricing: order.pricing || {},
+          });
+          const earnedPoints = Math.max(
+            0,
+            Number(order.loyaltyPointsEarned || 0) || fallbackEarnedPoints,
+          );
+
+          if (earnedPoints > 0) {
+            await userService.updateLoyaltyPoints(
+              order.userId,
+              earnedPoints,
+              `order_completed:${order.orderNumber}`,
+              { session },
+            );
+          }
+
+          order.loyaltyPointsEarned = earnedPoints;
+          order.loyaltyPointsAwardedAt = new Date();
+        }
+
         order.updatedAt = new Date();
 
         await order.save({ session });
@@ -1234,6 +1275,17 @@ export class OrderService {
 
     await shipmentDoc.save({ session });
     return shipmentDoc;
+  }
+
+  calculateEarnedLoyaltyPoints(payload = {}) {
+    const { items = [], pricing = {} } = payload;
+    const subtotalFromPricing = Math.max(0, Number(pricing?.subtotal || 0));
+    const subtotalFromItems = (items || []).reduce(
+      (sum, item) => sum + Math.max(0, Number(item.totalPrice || 0)),
+      0,
+    );
+    const baseAmount = subtotalFromPricing > 0 ? subtotalFromPricing : subtotalFromItems;
+    return loyaltyService.calculateEarnPoints(baseAmount);
   }
 
   calculatePricing(items = [], payload = {}) {

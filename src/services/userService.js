@@ -3,10 +3,64 @@ import Order from "../models/Order.js";
 import Review from "../models/Review.js";
 import bcrypt from "bcryptjs";
 import { AppError } from "../utils/helpers.js";
+import loyaltyService from "./loyaltyService.js";
 
 const USER_SAFE_SELECT = "-passwordHash -oauthProviders";
+const USER_LIST_SELECT = `${USER_SAFE_SELECT} -loyalty.pointsHistory`;
+const LOYALTY_TIER_VALUES = new Set(["bronze", "silver", "gold", "platinum"]);
+
+const buildLoyaltyTierFilter = (tier) => {
+  const normalizedTier = (tier || "").toString().trim().toLowerCase();
+  if (!LOYALTY_TIER_VALUES.has(normalizedTier)) {
+    return null;
+  }
+
+  const thresholds = loyaltyService.getTierThresholds();
+  const silverMin = Number(thresholds.silver || 0);
+  const goldMin = Number(thresholds.gold || silverMin);
+  const platinumMin = Number(thresholds.platinum || goldMin);
+
+  if (normalizedTier === "platinum") {
+    return { "loyalty.lifetimePoints": { $gte: platinumMin } };
+  }
+
+  if (normalizedTier === "gold") {
+    return {
+      "loyalty.lifetimePoints": {
+        $gte: goldMin,
+        $lt: platinumMin,
+      },
+    };
+  }
+
+  if (normalizedTier === "silver") {
+    return {
+      "loyalty.lifetimePoints": {
+        $gte: silverMin,
+        $lt: goldMin,
+      },
+    };
+  }
+
+  return {
+    $or: [
+      { "loyalty.lifetimePoints": { $exists: false } },
+      { "loyalty.lifetimePoints": { $lt: silverMin } },
+    ],
+  };
+};
 
 export class UserService {
+  withLoyaltySnapshot(user) {
+    if (!user) {
+      return null;
+    }
+
+    const plain = user?.toObject ? user.toObject() : { ...user };
+    plain.loyalty = loyaltyService.buildLoyaltySnapshot(plain.loyalty || {});
+    return plain;
+  }
+
   async getUserProfile(userId) {
     try {
       const user = await User.findById(userId).select(USER_SAFE_SELECT);
@@ -14,7 +68,7 @@ export class UserService {
         throw new AppError("User not found", 404);
       }
 
-      return user;
+      return this.withLoyaltySnapshot(user);
     } catch (error) {
       throw error;
     }
@@ -80,7 +134,7 @@ export class UserService {
         new: true,
       }).select(USER_SAFE_SELECT);
 
-      return updatedUser;
+      return this.withLoyaltySnapshot(updatedUser);
     } catch (error) {
       throw error;
     }
@@ -155,15 +209,22 @@ export class UserService {
         });
       }
 
+      if (filters.loyaltyTier) {
+        const loyaltyTierFilter = buildLoyaltyTierFilter(filters.loyaltyTier);
+        if (loyaltyTierFilter) {
+          andConditions.push(loyaltyTierFilter);
+        }
+      }
+
       const query = andConditions.length > 0 ? { $and: andConditions } : {};
 
       const [docs, totalDocs] = await Promise.all([
-        User.find(query).select(USER_SAFE_SELECT).sort(sort).skip(skip).limit(limit),
+        User.find(query).select(USER_LIST_SELECT).sort(sort).skip(skip).limit(limit),
         User.countDocuments(query),
       ]);
 
       return {
-        docs,
+        docs: docs.map((item) => this.withLoyaltySnapshot(item)),
         totalDocs,
         page,
         limit,
@@ -183,7 +244,7 @@ export class UserService {
         throw new AppError("User not found", 404);
       }
 
-      return user;
+      return this.withLoyaltySnapshot(user);
     } catch (error) {
       throw error;
     }
@@ -298,7 +359,7 @@ export class UserService {
         new: true,
       }).select(USER_SAFE_SELECT);
 
-      return updatedUser;
+      return this.withLoyaltySnapshot(updatedUser);
     } catch (error) {
       throw error;
     }
@@ -325,7 +386,7 @@ export class UserService {
         new: true,
       }).select(USER_SAFE_SELECT);
 
-      return updatedUser;
+      return this.withLoyaltySnapshot(updatedUser);
     } catch (error) {
       throw error;
     }
@@ -349,36 +410,57 @@ export class UserService {
         { new: true },
       ).select(USER_SAFE_SELECT);
 
-      return updatedUser;
+      return this.withLoyaltySnapshot(updatedUser);
     } catch (error) {
       throw error;
     }
   }
 
-  async updateLoyaltyPoints(userId, delta, reason = "manual_adjustment") {
+  async updateLoyaltyPoints(userId, delta, reason = "manual_adjustment", options = {}) {
+    const { session = null } = options;
     try {
-      const user = await User.findById(userId);
+      const query = User.findById(userId);
+      if (session) {
+        query.session(session);
+      }
+      const user = await query;
       if (!user) {
         throw new AppError("User not found", 404);
       }
 
       const value = Number(delta || 0);
-      const currentPoints = user.loyalty?.points || 0;
+      const currentPoints = Number(user.loyalty?.points || 0);
       const newPoints = Math.max(0, currentPoints + value);
-      const lifetimePoints = (user.loyalty?.lifetimePoints || 0) + Math.max(0, value);
+      const currentLifetimePoints = Number(user.loyalty?.lifetimePoints || 0);
+      const lifetimePoints = currentLifetimePoints + Math.max(0, value);
+      const previousTier = loyaltyService.resolveTierByLifetimePoints(currentLifetimePoints);
+      const nextTier = loyaltyService.resolveTierByLifetimePoints(lifetimePoints);
 
+      user.loyalty = user.loyalty || {};
       user.loyalty.points = newPoints;
       user.loyalty.lifetimePoints = lifetimePoints;
+      user.loyalty.tier = nextTier;
       user.loyalty.pointsHistory = user.loyalty.pointsHistory || [];
       user.loyalty.pointsHistory.push({
         delta: value,
         reason,
         date: new Date(),
       });
+
+      if (previousTier !== nextTier) {
+        user.loyalty.pointsHistory.push({
+          delta: 0,
+          reason: `tier_changed:${previousTier}->${nextTier}`,
+          date: new Date(),
+        });
+      }
+      if (user.loyalty.pointsHistory.length > 200) {
+        user.loyalty.pointsHistory = user.loyalty.pointsHistory.slice(-200);
+      }
       user.updatedAt = new Date();
 
-      await user.save();
-      return user;
+      await user.save({ session });
+      return this.withLoyaltySnapshot(user);
     } catch (error) {
       throw error;
     }
