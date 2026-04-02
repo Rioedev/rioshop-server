@@ -6,6 +6,7 @@ import {
   getGhnDistricts,
   getGhnProvinces,
   getGhnWards,
+  getShippingPolicy,
   getShipment,
   updateTracking,
   shipmentWebhook,
@@ -22,6 +23,7 @@ import {
 const router = express.Router();
 
 // GHN master data + fee quote
+router.get("/policy", getShippingPolicy);
 router.get("/ghn/provinces", authenticateToken, getGhnProvinces);
 router.get(
   "/ghn/districts",

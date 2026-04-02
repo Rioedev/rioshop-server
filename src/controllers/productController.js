@@ -16,11 +16,23 @@ const parseCsvValues = (value) =>
 
 export const getAllProducts = asyncHandler(async (req, res) => {
   const { page, limit } = getPaginationParams(req.query.page, req.query.limit);
-  const { q, category, gender, minPrice, maxPrice, color, size, sort, status = "active" } = req.query;
+  const {
+    q,
+    category,
+    collection,
+    gender,
+    minPrice,
+    maxPrice,
+    color,
+    size,
+    sort,
+    status = "active",
+  } = req.query;
 
   const filters = {};
   if (status && status !== "all") filters.status = status;
   if (category) filters["category._id"] = category;
+  if (collection) filters["collections._id"] = collection;
   if (gender) filters.gender = gender;
 
   const keyword = String(q ?? "").trim();

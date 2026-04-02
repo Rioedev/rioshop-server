@@ -14,6 +14,7 @@ import rateLimiter from "./src/middlewares/rateLimiter.js";
 // Routes
 import productRoutes from "./src/routes/products.js";
 import categoryRoutes from "./src/routes/categories.js";
+import collectionRoutes from "./src/routes/collections.js";
 import userRoutes from "./src/routes/users.js";
 import authRoutes from "./src/routes/auth.js";
 import cartRoutes from "./src/routes/carts.js";
@@ -104,6 +105,7 @@ const initializeApp = async () => {
 // Routes
 app.use("/api/products", productRoutes);
 app.use("/api/categories", categoryRoutes);
+app.use("/api/collections", collectionRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/carts", cartRoutes);
@@ -131,6 +133,7 @@ app.get("/", (req, res) => {
       health: "/health",
       products: "/api/products",
       categories: "/api/categories",
+      collections: "/api/collections",
       users: "/api/users",
       auth: "/api/auth",
       carts: "/api/carts",

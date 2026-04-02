@@ -136,22 +136,38 @@ export class OrderService {
     }
 
     const items = await this.resolveOrderItems(normalizedItems);
-    const shippingCarrier = this.resolveShippingCarrier(data);
-    let shippingFeeInput =
+    const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
+    const shippingMethod = data.shippingMethod || "standard";
+    const shippingCarrier = this.resolveShippingCarrier({
+      ...data,
+      shippingMethod,
+    });
+    let rawShippingFeeInput =
       data.shippingFee !== undefined
         ? Number(data.shippingFee)
         : Number(data.pricing?.shippingFee || 0);
 
-    if (this.shouldUseGhnShipping(data.shippingMethod, shippingCarrier)) {
-      const ghnShippingFee = await this.resolveGhnShippingFee({
+    if (shippingMethod === "same_day") {
+      rawShippingFeeInput = GHNShippingService.getSameDayFlatFee();
+    }
+
+    if (this.shouldUseGhnShipping(shippingMethod, shippingCarrier)) {
+      const ghnShippingQuote = await this.resolveGhnShippingQuote({
         items,
         shippingAddress: data.shippingAddress || {},
-        shippingMethod: data.shippingMethod || "standard",
+        shippingMethod,
+        subtotal,
       });
-      if (Number.isFinite(ghnShippingFee)) {
-        shippingFeeInput = ghnShippingFee;
+      if (Number.isFinite(ghnShippingQuote?.rawShippingFee)) {
+        rawShippingFeeInput = Number(ghnShippingQuote.rawShippingFee || 0);
       }
     }
+    const shippingQuote = GHNShippingService.calculateShippingQuote({
+      shippingMethod,
+      subtotal,
+      rawShippingFee: rawShippingFeeInput,
+    });
+    const shippingFeeInput = Number(shippingQuote.shippingFeePayable || 0);
 
     let couponCode = data.couponCode || null;
     let couponDiscount = Number(data.couponDiscount || 0);
@@ -160,7 +176,7 @@ export class OrderService {
     if (couponCode) {
       const validation = await couponService.validateCoupon(couponCode, {
         userId,
-        orderValue: items.reduce((sum, item) => sum + item.totalPrice, 0),
+        orderValue: subtotal,
         shippingFee: shippingFeeInput,
         productIds: items.map((item) => item.productId),
       });
@@ -210,7 +226,7 @@ export class OrderService {
           loyaltyPointsEarned: Number(data.loyaltyPointsEarned || 0),
           paymentMethod: data.paymentMethod || "cod",
           paymentStatus: data.paymentStatus || "pending",
-          shippingMethod: data.shippingMethod || "standard",
+          shippingMethod,
           shippingCarrier,
           shippingFee: pricing.shippingFee,
           status: nextStatus,
@@ -1087,8 +1103,13 @@ export class OrderService {
     return profile;
   }
 
-  async resolveGhnShippingFee(payload = {}) {
-    const { items = [], shippingAddress = {}, shippingMethod = "standard" } = payload;
+  async resolveGhnShippingQuote(payload = {}) {
+    const {
+      items = [],
+      shippingAddress = {},
+      shippingMethod = "standard",
+      subtotal = 0,
+    } = payload;
     const { districtId, wardCode } = this.extractGhnAddressCodes(shippingAddress);
     const packageProfile = this.buildPackageProfileFromItems(items);
     const insuranceValue = items.reduce((sum, item) => sum + Number(item.totalPrice || 0), 0);
@@ -1101,7 +1122,11 @@ export class OrderService {
       packageProfile,
     });
 
-    return Number(fee.totalFee || 0);
+    return GHNShippingService.buildFeeQuote(fee, {
+      shippingMethod,
+      subtotal: Number(subtotal || insuranceValue || 0),
+      insuranceValue,
+    });
   }
 
   buildShipmentAddressLine(shippingAddress = {}) {

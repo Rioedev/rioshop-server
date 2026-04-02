@@ -25,6 +25,39 @@ export class ProductService {
     };
   }
 
+  resolvePricingPayload(pricing, existingProduct = null) {
+    const existingPricing = existingProduct?.pricing || {};
+    const basePriceInput =
+      pricing?.basePrice !== undefined
+        ? Number(pricing.basePrice)
+        : Number(existingPricing.basePrice);
+    const salePriceInput =
+      pricing?.salePrice !== undefined
+        ? Number(pricing.salePrice)
+        : Number(existingPricing.salePrice);
+
+    if (!Number.isFinite(basePriceInput) || !Number.isFinite(salePriceInput)) {
+      throw new AppError("Product pricing is invalid", 400);
+    }
+
+    const basePrice = Math.max(0, basePriceInput);
+    const salePrice = Math.max(0, salePriceInput);
+    if (salePrice > basePrice) {
+      throw new AppError("Sale price must be less than or equal to base price", 400);
+    }
+
+    const currency =
+      pricing?.currency?.toString().trim() ||
+      existingPricing?.currency?.toString().trim() ||
+      "VND";
+
+    return {
+      basePrice,
+      salePrice,
+      currency,
+    };
+  }
+
   async skuExists(sku, excludeProductId = null) {
     const query = {
       deletedAt: null,
@@ -63,6 +96,27 @@ export class ProductService {
             .filter(Boolean)
         : [];
 
+    if (data.collections !== undefined) {
+      const uniqueCollections = new Map();
+      for (const item of data.collections ?? []) {
+        const id = item?._id?.toString().trim();
+        const name = item?.name?.toString().trim();
+
+        if (!id || !name || uniqueCollections.has(id)) {
+          continue;
+        }
+
+        uniqueCollections.set(id, {
+          _id: id,
+          name,
+          slug: item?.slug?.toString().trim() || "",
+          image: item?.image?.toString().trim() || "",
+        });
+      }
+
+      nextData.collections = Array.from(uniqueCollections.values());
+    }
+
     if (!existingProduct || data.sku !== undefined) {
       const requestedProductSku =
         normalizeSkuInput(data.sku) ||
@@ -76,6 +130,10 @@ export class ProductService {
         new Set(preservedVariantSkus),
         excludeProductId,
       );
+    }
+
+    if (!existingProduct || data.pricing !== undefined) {
+      nextData.pricing = this.resolvePricingPayload(data.pricing, existingProduct);
     }
 
     if (data.variants !== undefined) {

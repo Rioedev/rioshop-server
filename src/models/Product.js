@@ -37,6 +37,16 @@ const mediaSchema = new mongoose.Schema(
   { _id: false },
 );
 
+const collectionRefSchema = new mongoose.Schema(
+  {
+    _id: mongoose.Schema.Types.ObjectId,
+    name: String,
+    slug: String,
+    image: String,
+  },
+  { _id: false },
+);
+
 const productSchema = new mongoose.Schema(
   {
     sku: { type: String, required: true },
@@ -57,6 +67,7 @@ const productSchema = new mongoose.Schema(
         },
       ],
     },
+    collections: [collectionRefSchema],
     tags: [String],
     gender: { type: String, enum: ["men", "women", "unisex", "kids"] },
     ageGroup: { type: String, enum: ["adult", "teen", "kids", "baby"] },
@@ -173,6 +184,7 @@ productSchema.index(
 );
 // productSchema.index({ "variants.sku": 1 });
 productSchema.index({ "category._id": 1, status: 1 });
+productSchema.index({ "collections._id": 1, status: 1 });
 productSchema.index({ status: 1, isFeatured: 1 });
 productSchema.index({ "ratings.avg": -1, totalSold: -1 });
 productSchema.index({ tags: 1 });

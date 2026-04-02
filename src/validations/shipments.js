@@ -25,6 +25,7 @@ export const ghnFeeValidation = Joi.object({
     toDistrictId: Joi.number().integer().positive().required(),
     toWardCode: Joi.string().trim().required(),
     shippingMethod: Joi.string().valid("standard", "express", "same_day").optional(),
+    subtotal: Joi.number().min(0).optional(),
     insuranceValue: Joi.number().min(0).optional(),
     codAmount: Joi.number().min(0).optional(),
     packageProfile: Joi.object({

@@ -6,6 +6,47 @@ const GHN_API_BASE_URL =
 const GHN_MASTER_DATA_BASE_URL =
   process.env.GHN_MASTER_DATA_BASE_URL || `${GHN_API_BASE_URL}/master-data`;
 const GHN_TIMEOUT_MS = Number(process.env.GHN_TIMEOUT_MS || 15000);
+const SHIPPING_METHODS = ["standard", "express", "same_day"];
+const DEFAULT_FREE_SHIP_THRESHOLD = 299000;
+const DEFAULT_FREE_SHIP_METHODS = ["standard", "express"];
+const DEFAULT_SAME_DAY_FLAT_FEE = 45000;
+const DEFAULT_GHN_STANDARD_FALLBACK_FEE = 20000;
+const DEFAULT_GHN_EXPRESS_FALLBACK_FEE = 30000;
+
+const normalizeMoney = (value, fallback = 0) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return Math.max(0, Math.round(Number(fallback) || 0));
+  }
+  return Math.max(0, Math.round(parsed));
+};
+
+const normalizeBoolean = (value, fallback = true) => {
+  if (value === undefined || value === null || value === "") {
+    return fallback;
+  }
+
+  const normalized = value.toString().trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["0", "false", "no", "off"].includes(normalized)) {
+    return false;
+  }
+  return fallback;
+};
+
+const parseMethodList = (value, fallback = []) => {
+  const source =
+    value === undefined || value === null || value === ""
+      ? fallback.join(",")
+      : value.toString();
+
+  return source
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter((item) => SHIPPING_METHODS.includes(item));
+};
 
 const clampNumber = (value, min, max) => {
   const num = Number(value || 0);
@@ -91,6 +132,103 @@ export class GHNShippingService {
       return 1;
     }
     return 2;
+  }
+
+  static normalizeShippingMethod(shippingMethod = "standard") {
+    const normalized = (shippingMethod || "").toString().trim().toLowerCase();
+    if (SHIPPING_METHODS.includes(normalized)) {
+      return normalized;
+    }
+    return "standard";
+  }
+
+  static getShippingPolicy() {
+    const freeShipMethods = parseMethodList(
+      process.env.FREE_SHIP_METHODS,
+      DEFAULT_FREE_SHIP_METHODS,
+    );
+
+    return {
+      freeShipEnabled: normalizeBoolean(process.env.FREE_SHIP_ENABLED, true),
+      freeShipThreshold: normalizeMoney(
+        process.env.FREE_SHIP_THRESHOLD,
+        DEFAULT_FREE_SHIP_THRESHOLD,
+      ),
+      freeShipEligibleMethods: freeShipMethods.length > 0 ? freeShipMethods : DEFAULT_FREE_SHIP_METHODS,
+      sameDayFlatFee: normalizeMoney(
+        process.env.SAME_DAY_FLAT_FEE,
+        DEFAULT_SAME_DAY_FLAT_FEE,
+      ),
+      ghnFallbackStandardFee: normalizeMoney(
+        process.env.GHN_FALLBACK_STANDARD_FEE,
+        DEFAULT_GHN_STANDARD_FALLBACK_FEE,
+      ),
+      ghnFallbackExpressFee: normalizeMoney(
+        process.env.GHN_FALLBACK_EXPRESS_FEE,
+        DEFAULT_GHN_EXPRESS_FALLBACK_FEE,
+      ),
+    };
+  }
+
+  static getSameDayFlatFee() {
+    const policy = this.getShippingPolicy();
+    return policy.sameDayFlatFee;
+  }
+
+  static getGhnFallbackFee(shippingMethod = "standard") {
+    const policy = this.getShippingPolicy();
+    const normalizedMethod = this.normalizeShippingMethod(shippingMethod);
+    if (normalizedMethod === "express") {
+      return policy.ghnFallbackExpressFee;
+    }
+    return policy.ghnFallbackStandardFee;
+  }
+
+  static calculateShippingQuote(payload = {}) {
+    const policy = this.getShippingPolicy();
+    const shippingMethod = this.normalizeShippingMethod(payload.shippingMethod);
+    const subtotal = normalizeMoney(payload.subtotal || payload.insuranceValue || 0);
+    const rawShippingFee = normalizeMoney(payload.rawShippingFee || payload.totalFee || 0);
+    const threshold = normalizeMoney(policy.freeShipThreshold, DEFAULT_FREE_SHIP_THRESHOLD);
+    const isMethodEligible = policy.freeShipEligibleMethods.includes(shippingMethod);
+    const isFreeShipEnabled = policy.freeShipEnabled && isMethodEligible && threshold >= 0;
+    const isEligibleForFreeShip = isFreeShipEnabled && subtotal >= threshold;
+    const freeShipDiscount = isEligibleForFreeShip ? rawShippingFee : 0;
+    const shippingFeePayable = Math.max(0, rawShippingFee - freeShipDiscount);
+    const remainingToFreeShip = isFreeShipEnabled ? Math.max(0, threshold - subtotal) : 0;
+    const freeShipProgress =
+      isFreeShipEnabled && threshold > 0
+        ? Math.min(100, Math.round((subtotal / threshold) * 100))
+        : isEligibleForFreeShip
+          ? 100
+          : 0;
+
+    return {
+      shippingMethod,
+      subtotal,
+      rawShippingFee,
+      shippingFeePayable,
+      freeShipDiscount,
+      isEligibleForFreeShip,
+      remainingToFreeShip,
+      freeShipProgress,
+      freeShipApplicableMethod: isMethodEligible,
+      ...policy,
+    };
+  }
+
+  static buildFeeQuote(fee = {}, payload = {}) {
+    const shippingMethod = this.normalizeShippingMethod(payload.shippingMethod);
+    const quote = this.calculateShippingQuote({
+      shippingMethod,
+      subtotal: payload.subtotal ?? payload.insuranceValue ?? 0,
+      rawShippingFee: fee.totalFee,
+    });
+
+    return {
+      ...fee,
+      ...quote,
+    };
   }
 
   static normalizePackageProfile(profile = {}) {

@@ -40,7 +40,13 @@ export const getGhnWards = asyncHandler(async (req, res) => {
   sendSuccess(res, 200, wards, "GHN wards retrieved");
 });
 
+export const getShippingPolicy = asyncHandler(async (req, res) => {
+  const policy = GHNShippingService.getShippingPolicy();
+  sendSuccess(res, 200, policy, "Shipping policy retrieved");
+});
+
 export const calculateGhnFee = asyncHandler(async (req, res) => {
   const fee = await GHNShippingService.calculateFee(req.body);
-  sendSuccess(res, 200, fee, "GHN shipping fee calculated");
+  const quote = GHNShippingService.buildFeeQuote(fee, req.body);
+  sendSuccess(res, 200, quote, "GHN shipping fee calculated");
 });

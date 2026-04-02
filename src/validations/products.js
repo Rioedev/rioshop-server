@@ -16,6 +16,13 @@ const categoryValidation = Joi.object({
   slug: Joi.string().trim().allow("").optional(),
 });
 
+const collectionValidation = Joi.object({
+  _id: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required(),
+  name: Joi.string().trim().required(),
+  slug: Joi.string().trim().allow("").optional(),
+  image: Joi.string().uri().allow("").optional(),
+});
+
 const inventorySummaryValidation = Joi.object({
   total: Joi.number().min(0),
   available: Joi.number().min(0),
@@ -49,6 +56,31 @@ const productVariantValidation = Joi.object({
   position: Joi.number().integer().min(0),
 });
 
+const createPricingValidation = Joi.object({
+  basePrice: Joi.number().min(0).required(),
+  salePrice: Joi.number().min(0).max(Joi.ref("basePrice")).required().messages({
+    "number.max": "salePrice must be less than or equal to basePrice",
+  }),
+});
+
+const updatePricingValidation = Joi.object({
+  basePrice: Joi.number().min(0),
+  salePrice: Joi.number().min(0),
+})
+  .custom((value, helpers) => {
+    if (
+      value.basePrice !== undefined &&
+      value.salePrice !== undefined &&
+      value.salePrice > value.basePrice
+    ) {
+      return helpers.error("any.invalid");
+    }
+    return value;
+  })
+  .messages({
+    "any.invalid": "salePrice must be less than or equal to basePrice",
+  });
+
 export const createProductValidation = Joi.object({
   body: Joi.object({
     sku: Joi.string().trim().allow("").optional(),
@@ -56,12 +88,10 @@ export const createProductValidation = Joi.object({
     name: Joi.string().trim().required(),
     brand: Joi.string().trim().required(),
     category: categoryValidation.required(),
+    collections: Joi.array().items(collectionValidation).max(50).optional(),
     description: Joi.string().allow(""),
     shortDescription: Joi.string().allow(""),
-    pricing: Joi.object({
-      basePrice: Joi.number().required(),
-      salePrice: Joi.number().required(),
-    }).required(),
+    pricing: createPricingValidation.required(),
     inventorySummary: inventorySummaryValidation,
     variants: Joi.array().items(productVariantValidation).min(1).required(),
     media: Joi.array().items(productMediaValidation).optional(),
@@ -91,10 +121,8 @@ export const updateProductValidation = Joi.object({
     description: Joi.string().allow(""),
     shortDescription: Joi.string().allow(""),
     category: categoryValidation,
-    pricing: Joi.object({
-      basePrice: Joi.number(),
-      salePrice: Joi.number(),
-    }),
+    collections: Joi.array().items(collectionValidation).max(50),
+    pricing: updatePricingValidation,
     inventorySummary: inventorySummaryValidation,
     variants: Joi.array().items(productVariantValidation).min(1),
     media: Joi.array().items(productMediaValidation),
@@ -123,6 +151,7 @@ export const paginationValidation = Joi.object({
     limit: Joi.number().integer().min(1).max(100),
     q: Joi.string().trim().max(200).optional(),
     category: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
+    collection: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).optional(),
     gender: Joi.string().valid("men", "women", "unisex", "kids").optional(),
     minPrice: Joi.number().min(0).optional(),
     maxPrice: Joi.number().min(0).optional(),
