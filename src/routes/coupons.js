@@ -4,6 +4,7 @@ import { validateRequest } from "../middlewares/validation.js";
 import {
   validateCoupon,
   getActiveCoupons,
+  getMyAvailableCoupons,
   getCouponByCode,
   getAdminCoupons,
   createCoupon,
@@ -53,6 +54,14 @@ router.post("/validate", validateRequest(validateCouponValidation), validateCoup
 
 // Get active coupons
 router.get("/", validateRequest(getActiveCouponsValidation), getActiveCoupons);
+
+// Get available coupons for current user
+router.get(
+  "/me/available",
+  authenticateToken,
+  validateRequest(getActiveCouponsValidation),
+  getMyAvailableCoupons,
+);
 
 // Get coupon
 router.get("/:code", validateRequest(getCouponByCodeValidation), getCouponByCode);

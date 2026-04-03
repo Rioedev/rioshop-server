@@ -44,6 +44,17 @@ export const getActiveCoupons = asyncHandler(async (req, res) => {
   sendSuccess(res, 200, coupons, "Coupons retrieved");
 });
 
+export const getMyAvailableCoupons = asyncHandler(async (req, res) => {
+  const userId = req.user?.userId;
+  if (!userId) {
+    return sendError(res, 403, "User authentication required");
+  }
+
+  const { page, limit } = getPaginationParams(req.query.page, req.query.limit);
+  const coupons = await couponService.getAvailableCouponsForUser(userId, {}, { page, limit });
+  sendSuccess(res, 200, coupons, "Available coupons retrieved");
+});
+
 export const getCouponByCode = asyncHandler(async (req, res) => {
   const coupon = await couponService.getCouponByCode(req.params.code);
 

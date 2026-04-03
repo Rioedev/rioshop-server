@@ -75,6 +75,12 @@ export class CouponService {
       isActive: true,
       startsAt: { $lte: now },
       expiresAt: { $gte: now },
+      $or: [
+        { usageLimit: { $exists: false } },
+        { usageLimit: null },
+        { usageLimit: 0 },
+        { $expr: { $lt: ["$usageCount", "$usageLimit"] } },
+      ],
       ...filters,
     };
 
@@ -93,6 +99,88 @@ export class CouponService {
         totalPages: Math.max(1, Math.ceil(totalDocs / limit)),
         hasPrevPage: page > 1,
         hasNextPage: skip + coupons.length < totalDocs,
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async getAvailableCouponsForUser(userId, filters = {}, options = {}) {
+    if (!userId) {
+      return this.getActiveCoupons(filters, options);
+    }
+
+    const { page = 1, limit = 20, sort = { createdAt: -1 } } = options;
+    const now = new Date();
+    const query = {
+      isActive: true,
+      startsAt: { $lte: now },
+      expiresAt: { $gte: now },
+      ...filters,
+    };
+
+    const user = await User.findById(userId).select("loyalty.tier");
+    if (!user) {
+      throw new AppError("User not found", 404);
+    }
+
+    const normalizedUserTier = (user?.loyalty?.tier || "bronze")
+      .toString()
+      .trim()
+      .toLowerCase();
+
+    try {
+      const coupons = await Coupon.find(query).sort(sort);
+      const normalizedUserId = userId.toString();
+
+      const availableCoupons = coupons.filter((coupon) => {
+        if (coupon.usageLimit && coupon.usageCount >= coupon.usageLimit) {
+          return false;
+        }
+
+        if (
+          Array.isArray(coupon.eligibleUsers) &&
+          coupon.eligibleUsers.length > 0 &&
+          !coupon.eligibleUsers.some((id) => id.toString() === normalizedUserId)
+        ) {
+          return false;
+        }
+
+        if (Array.isArray(coupon.eligibleTiers) && coupon.eligibleTiers.length > 0) {
+          const normalizedEligibleTiers = coupon.eligibleTiers
+            .map((item) => (item || "").toString().trim().toLowerCase())
+            .filter(Boolean);
+
+          if (!normalizedEligibleTiers.includes(normalizedUserTier)) {
+            return false;
+          }
+        }
+
+        if (coupon.perUserLimit) {
+          const userUsageCount = (coupon.usedBy || []).filter(
+            (entry) => entry.userId?.toString() === normalizedUserId,
+          ).length;
+
+          if (userUsageCount >= coupon.perUserLimit) {
+            return false;
+          }
+        }
+
+        return true;
+      });
+
+      const skip = (page - 1) * limit;
+      const docs = availableCoupons.slice(skip, skip + limit);
+      const totalDocs = availableCoupons.length;
+
+      return {
+        docs,
+        totalDocs,
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(totalDocs / limit)),
+        hasPrevPage: page > 1,
+        hasNextPage: skip + docs.length < totalDocs,
       };
     } catch (error) {
       throw error;
