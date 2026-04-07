@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 const shipmentEventSchema = new mongoose.Schema(
   {
     status: String,
+    carrierStatus: String,
     location: String,
     note: String,
     at: { type: Date, default: Date.now },
@@ -23,6 +24,7 @@ const shipmentSchema = new mongoose.Schema({
   },
   trackingCode: { type: String, required: true },
   trackingUrl: String,
+  carrierStatus: String,
   status: {
     type: String,
     enum: [

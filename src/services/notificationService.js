@@ -16,10 +16,35 @@ const ORDER_STATUS_LABELS = {
   returned: "Đã trả",
 };
 
+const CUSTOMER_STATUS_LABELS = {
+  pending_confirmation: "Chờ xác nhận",
+  waiting_pickup: "Chờ lấy hàng",
+  in_transit: "Đang vận chuyển",
+  out_for_delivery: "Đang giao hàng",
+  delivered: "Đã giao",
+  completed: "Hoàn tất",
+  cancelled: "Đã hủy",
+  return_in_progress: "Đang hoàn hàng",
+  returned: "Đã hoàn hàng",
+  issue: "Đơn hàng gặp sự cố",
+};
+
 const ONLINE_PAYMENT_METHODS = new Set(["momo", "vnpay", "zalopay", "card", "bank_transfer"]);
 
 const resolveOrderStatusLabel = (order = null, status = "") => {
   const nextStatus = (status || "").toString().trim();
+  if (CUSTOMER_STATUS_LABELS[nextStatus]) {
+    if (
+      nextStatus === "pending_confirmation" &&
+      (order?.paymentStatus || "").toString().trim() === "pending" &&
+      ONLINE_PAYMENT_METHODS.has((order?.paymentMethod || "").toString().trim())
+    ) {
+      return "Chờ thanh toán";
+    }
+
+    return CUSTOMER_STATUS_LABELS[nextStatus] || nextStatus;
+  }
+
   if (
     nextStatus === "pending" &&
     (order?.paymentStatus || "").toString().trim() === "pending" &&
@@ -228,7 +253,7 @@ export class NotificationService {
       const orderId = order?._id?.toString?.() || "";
       const orderNumber = order?.orderNumber || orderId;
       const ownerUserId = order?.userId?.toString?.() || null;
-      const nextStatus = order?.status || "";
+      const nextStatus = order?.customerStatus || order?.status || "";
 
       const rows = [];
 

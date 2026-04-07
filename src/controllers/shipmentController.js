@@ -20,6 +20,26 @@ export const updateTracking = asyncHandler(async (req, res) => {
   sendSuccess(res, 200, shipment, "Tracking updated");
 });
 
+export const syncShipmentFromGhn = asyncHandler(async (req, res) => {
+  if (!req.user?.adminId) {
+    return sendError(res, 403, "Only admin can sync GHN shipment");
+  }
+
+  const result = await shipmentService.syncGhnShipmentById(req.params.id);
+  sendSuccess(res, 200, result, "GHN shipment synced");
+});
+
+export const syncActiveGhnShipments = asyncHandler(async (req, res) => {
+  if (!req.user?.adminId) {
+    return sendError(res, 403, "Only admin can sync GHN shipments");
+  }
+
+  const result = await shipmentService.syncActiveGhnShipments({
+    limit: req.body?.limit,
+  });
+  sendSuccess(res, 200, result, "Active GHN shipments synced");
+});
+
 export const shipmentWebhook = asyncHandler(async (req, res) => {
   const shipment = await shipmentService.processWebhook(req.params.carrier, req.body);
   sendSuccess(res, 200, shipment, "Webhook processed");

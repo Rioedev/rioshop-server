@@ -12,6 +12,10 @@ import { getSocketServer } from "../sockets/socketGateway.js";
 import { GHNShippingService } from "./shippingService.js";
 import { SINGLE_WAREHOUSE_ID, SINGLE_WAREHOUSE_NAME } from "../constants/warehouse.js";
 import { AppError } from "../utils/helpers.js";
+import {
+  resolveCarrierStatusForOrder,
+  resolveCustomerStatus,
+} from "../utils/shippingStatus.js";
 
 const toPositiveNumber = (value, fallback) => {
   const parsed = Number(value);
@@ -99,7 +103,7 @@ export class OrderService {
     const { page = 1, limit = 10, sort = { createdAt: -1 } } = options;
 
     try {
-      return await Order.paginate(filters, {
+      const paginatedOrders = await Order.paginate(filters, {
         page,
         limit,
         sort,
@@ -109,6 +113,7 @@ export class OrderService {
           { path: "items.productId", select: "_id name slug media" },
         ],
       });
+      return this.decoratePaginatedOrders(paginatedOrders);
     } catch (error) {
       throw error;
     }
@@ -121,14 +126,45 @@ export class OrderService {
         query.userId = userId;
       }
 
-      return await Order.findOne(query).populate([
+      const order = await Order.findOne(query).populate([
         { path: "paymentId" },
         { path: "shipmentId" },
         { path: "items.productId", select: "_id name slug media" },
       ]);
+      return this.decorateOrder(order);
     } catch (error) {
       throw error;
     }
+  }
+
+  decoratePaginatedOrders(paginatedOrders = {}) {
+    if (!paginatedOrders || !Array.isArray(paginatedOrders.docs)) {
+      return paginatedOrders;
+    }
+
+    return {
+      ...paginatedOrders,
+      docs: paginatedOrders.docs.map((order) => this.decorateOrder(order)),
+    };
+  }
+
+  decorateOrder(order) {
+    if (!order) {
+      return order;
+    }
+
+    const plainOrder = typeof order.toObject === "function" ? order.toObject() : { ...order };
+    const carrierStatus = resolveCarrierStatusForOrder(plainOrder);
+
+    return {
+      ...plainOrder,
+      orderStatus: plainOrder.status || "",
+      carrierStatus,
+      customerStatus: resolveCustomerStatus({
+        orderStatus: plainOrder.status || "",
+        carrierStatus,
+      }),
+    };
   }
 
   async createOrder(userId, data) {
@@ -332,18 +368,17 @@ export class OrderService {
         }
 
         previousStatus = order.status;
-        const isCompletingOrder = status === "completed" && order.status !== "completed";
         previousPaymentStatus = order.paymentStatus || "pending";
-        this.assertStatusTransition(order.status, status);
-        await this.applyInventoryForStatusTransition(order.items || [], order.status, status, session);
 
         const effectiveShippingCarrier =
           order.shippingCarrier || this.resolveShippingCarrier({ shippingMethod: order.shippingMethod });
+        const usesGhnShipping = this.shouldUseGhnShipping(order.shippingMethod, effectiveShippingCarrier);
+        let nextStatus = status;
 
         if (
-          (status === "ready_to_ship" || status === "shipping") &&
-          order.status !== status &&
-          this.shouldUseGhnShipping(order.shippingMethod, effectiveShippingCarrier) &&
+          (nextStatus === "ready_to_ship" || nextStatus === "shipping") &&
+          order.status !== nextStatus &&
+          usesGhnShipping &&
           !order.shipmentId
         ) {
           const shipmentDoc = await this.createGhnShipmentForOrder(order, { session, note });
@@ -351,7 +386,21 @@ export class OrderService {
           order.shippingCarrier = "GHN";
         }
 
-        order.status = status;
+        if (usesGhnShipping && nextStatus === "shipping" && order.shipmentId) {
+          const shipment = await Shipment.findById(order.shipmentId).select("status").session(session);
+          const shipmentStatus = (shipment?.status || "").toString().trim();
+          const movingStatuses = new Set(["picked_up", "in_transit", "out_for_delivery", "delivered"]);
+
+          if (!movingStatuses.has(shipmentStatus)) {
+            nextStatus = "ready_to_ship";
+          }
+        }
+
+        const isCompletingOrder = nextStatus === "completed" && order.status !== "completed";
+        this.assertStatusTransition(order.status, nextStatus);
+        await this.applyInventoryForStatusTransition(order.items || [], order.status, nextStatus, session);
+
+        order.status = nextStatus;
         if (paymentStatus) {
           order.paymentStatus = paymentStatus;
         }
@@ -360,7 +409,7 @@ export class OrderService {
         }
         order.timeline = order.timeline || [];
         order.timeline.push({
-          status,
+          status: nextStatus,
           note,
           at: new Date(),
           by: updatedBy,
@@ -540,12 +589,22 @@ export class OrderService {
       return;
     }
 
+    const carrierStatus = order.carrierStatus || resolveCarrierStatusForOrder(order);
+    const customerStatus =
+      order.customerStatus ||
+      resolveCustomerStatus({
+        orderStatus: order.status || "",
+        carrierStatus,
+      });
+
     io.emitOrderUpdate(orderId, {
       action: payload.action || "updated",
       source: payload.source || "order_service",
       orderId,
       orderNumber: order.orderNumber || "",
       status: order.status,
+      carrierStatus,
+      customerStatus,
       paymentStatus: order.paymentStatus,
       updatedAt: order.updatedAt || new Date(),
     });
@@ -1251,10 +1310,12 @@ export class OrderService {
       carrier: "GHN",
       trackingCode,
       trackingUrl,
+      carrierStatus: "ready_to_pick",
       status: "ready",
       events: [
         {
           status: "ready",
+          carrierStatus: "ready_to_pick",
           location: "",
           note: "Shipment created on GHN",
           at: new Date(),

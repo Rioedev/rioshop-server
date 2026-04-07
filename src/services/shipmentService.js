@@ -2,6 +2,12 @@ import Shipment from "../models/Shipment.js";
 import Order from "../models/Order.js";
 import orderService from "./orderService.js";
 import { AppError } from "../utils/helpers.js";
+import { GHNShippingService } from "./shippingService.js";
+import {
+  mapCarrierToInternalStatus,
+  mapInternalToCarrierStatus,
+  normalizeCarrierStatusToken,
+} from "../utils/shippingStatus.js";
 
 const SHIPMENT_TO_ORDER_STATUS = {
   ready: "ready_to_ship",
@@ -9,8 +15,21 @@ const SHIPMENT_TO_ORDER_STATUS = {
   in_transit: "shipping",
   out_for_delivery: "shipping",
   delivered: "delivered",
-  failed: "returned",
   returned: "returned",
+};
+const ACTIVE_SHIPMENT_STATUSES = new Set([
+  "ready",
+  "picked_up",
+  "in_transit",
+  "out_for_delivery",
+  "failed",
+]);
+const clampSyncLimit = (value, fallback = 20) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(100, Math.max(1, Math.round(parsed)));
 };
 
 export class ShipmentService {
@@ -37,12 +56,22 @@ export class ShipmentService {
         throw new AppError("Order not found", 404);
       }
 
+      const carrierStatus = normalizeCarrierStatusToken(data.carrierStatus || "");
+      const internalStatus =
+        data.status ||
+        mapCarrierToInternalStatus(carrierStatus, data.carrier || "") ||
+        "ready";
+      const fallbackCarrierStatus =
+        carrierStatus || mapInternalToCarrierStatus(internalStatus);
+
       const shipment = new Shipment({
         ...data,
-        status: data.status || "ready",
+        status: internalStatus,
+        carrierStatus: fallbackCarrierStatus || undefined,
         events: [
           {
-            status: data.status || "ready",
+            status: internalStatus,
+            carrierStatus: fallbackCarrierStatus || "",
             location: data.initialLocation || "",
             note: data.initialNote || "Shipment created",
             at: new Date(),
@@ -60,7 +89,7 @@ export class ShipmentService {
         updatedAt: new Date(),
       });
 
-      const mappedOrderStatus = SHIPMENT_TO_ORDER_STATUS[shipment.status];
+      const mappedOrderStatus = SHIPMENT_TO_ORDER_STATUS[internalStatus];
       if (mappedOrderStatus && mappedOrderStatus !== order.status) {
         await orderService.updateOrderStatus(order._id, mappedOrderStatus, {
           note: data.initialNote || "Shipment created",
@@ -82,8 +111,22 @@ export class ShipmentService {
       }
 
       const previousStatus = shipment.status;
+      const previousCarrierStatus = normalizeCarrierStatusToken(shipment.carrierStatus || "");
+      const incomingCarrierStatus = normalizeCarrierStatusToken(data.carrierStatus || "");
+      const derivedStatus = mapCarrierToInternalStatus(
+        incomingCarrierStatus,
+        shipment.carrier || "",
+      );
+      const nextStatus = data.status || derivedStatus || shipment.status;
+      const nextCarrierStatus =
+        incomingCarrierStatus ||
+        previousCarrierStatus ||
+        mapInternalToCarrierStatus(nextStatus);
 
-      if (data.status) shipment.status = data.status;
+      if (nextStatus) shipment.status = nextStatus;
+      if (nextCarrierStatus) {
+        shipment.carrierStatus = nextCarrierStatus;
+      }
       if (data.trackingCode) shipment.trackingCode = data.trackingCode;
       if (data.trackingUrl !== undefined) shipment.trackingUrl = data.trackingUrl;
       if (data.estimatedDelivery !== undefined) {
@@ -98,19 +141,22 @@ export class ShipmentService {
       if (data.codAmount !== undefined) shipment.codAmount = Number(data.codAmount);
 
       if (
-        data.status &&
-        (data.status !== previousStatus || data.location || data.note)
+        nextStatus !== previousStatus ||
+        nextCarrierStatus !== previousCarrierStatus ||
+        data.location ||
+        data.note
       ) {
         shipment.events = shipment.events || [];
         shipment.events.push({
-          status: data.status,
+          status: nextStatus,
+          carrierStatus: nextCarrierStatus || "",
           location: data.location || "",
           note: data.note || "",
           at: data.eventAt ? new Date(data.eventAt) : new Date(),
         });
       }
 
-      if (data.status === "delivered") {
+      if (nextStatus === "delivered") {
         shipment.deliveredAt = data.eventAt ? new Date(data.eventAt) : new Date();
       }
 
@@ -158,9 +204,13 @@ export class ShipmentService {
         carrier,
         payload.status || payload.statusCode || payload.state,
       );
+      const carrierStatus = normalizeCarrierStatusToken(
+        payload.status || payload.statusCode || payload.state,
+      );
 
       return await this.updateTracking(shipment._id, {
         status: normalizedStatus || shipment.status,
+        carrierStatus: carrierStatus || shipment.carrierStatus || "",
         location: payload.location || payload.current_location || "",
         note: payload.note || payload.description || "",
         eventAt: payload.updatedAt || payload.time || new Date(),
@@ -170,34 +220,170 @@ export class ShipmentService {
     }
   }
 
-  normalizeCarrierStatus(carrier, rawStatus) {
-    const status = (rawStatus || "").toString().toLowerCase();
+  extractGhnTrackingState(payload = {}) {
+    const data = payload?.data || payload || {};
+    const rawStatusCandidates = [
+      data.status,
+      data.state,
+      data.current_status,
+      data.order_status,
+      payload.status,
+      payload.state,
+    ];
+    const rawCarrierStatus = rawStatusCandidates.find((value) => value !== undefined && value !== null);
+    const carrierStatus = normalizeCarrierStatusToken(rawCarrierStatus || "");
+    const internalStatus = mapCarrierToInternalStatus(carrierStatus, "GHN");
 
-    const map = {
-      ready: "ready",
-      created: "ready",
-      picked_up: "picked_up",
-      pickup: "picked_up",
-      in_transit: "in_transit",
-      transporting: "in_transit",
-      out_for_delivery: "out_for_delivery",
-      delivering: "out_for_delivery",
-      delivered: "delivered",
-      failed: "failed",
-      cancelled: "failed",
-      returned: "returned",
+    const timelineCandidates = [
+      data.log,
+      data.logs,
+      data.status_history,
+      data.statusHistory,
+      data.timeline,
+      data.tracking_logs,
+      data.trackingLogs,
+    ];
+    const events = timelineCandidates.find((value) => Array.isArray(value)) || [];
+    const latestEvent = events.length > 0 ? events[events.length - 1] : null;
+
+    const eventTime =
+      latestEvent?.updated_at ||
+      latestEvent?.updatedAt ||
+      latestEvent?.time ||
+      latestEvent?.action_time ||
+      latestEvent?.created_at ||
+      data.updated_at ||
+      data.updatedAt ||
+      data.current_time ||
+      null;
+
+    return {
+      carrierStatus,
+      internalStatus,
+      eventAt: eventTime || null,
+      location:
+        latestEvent?.location ||
+        latestEvent?.hub_name ||
+        latestEvent?.area ||
+        data.current_location ||
+        "",
+      note:
+        latestEvent?.description ||
+        latestEvent?.note ||
+        latestEvent?.action ||
+        latestEvent?.status_name ||
+        "",
+    };
+  }
+
+  async syncGhnShipmentById(shipmentId) {
+    const shipment = await Shipment.findById(shipmentId);
+    if (!shipment) {
+      throw new AppError("Shipment not found", 404);
+    }
+
+    if ((shipment.carrier || "").toString().trim().toUpperCase() !== "GHN") {
+      throw new AppError("Only GHN shipment can be synced", 400);
+    }
+
+    if (!shipment.trackingCode) {
+      throw new AppError("Shipment tracking code is missing", 400);
+    }
+
+    GHNShippingService.assertConfigured();
+    const detail = await GHNShippingService.trackShipment(shipment.trackingCode);
+    const resolved = this.extractGhnTrackingState(detail);
+
+    if (!resolved.internalStatus && !resolved.carrierStatus) {
+      return {
+        updated: false,
+        reason: "missing_status_from_ghn",
+        trackingCode: shipment.trackingCode,
+      };
+    }
+
+    const nextStatus = resolved.internalStatus || shipment.status;
+    const nextCarrierStatus = resolved.carrierStatus || shipment.carrierStatus || "";
+    const hasStatusChanged = nextStatus !== shipment.status;
+    const hasCarrierStatusChanged =
+      normalizeCarrierStatusToken(nextCarrierStatus) !==
+      normalizeCarrierStatusToken(shipment.carrierStatus || "");
+
+    if (!hasStatusChanged && !hasCarrierStatusChanged) {
+      return {
+        updated: false,
+        reason: "status_unchanged",
+        trackingCode: shipment.trackingCode,
+        shipmentStatus: shipment.status,
+        carrierStatus: shipment.carrierStatus || "",
+      };
+    }
+
+    const updated = await this.updateTracking(shipment._id, {
+      status: nextStatus,
+      carrierStatus: nextCarrierStatus,
+      location: resolved.location || "",
+      note: "",
+      eventAt: resolved.eventAt || new Date().toISOString(),
+    });
+
+    return {
+      updated: true,
+      trackingCode: shipment.trackingCode,
+      shipmentStatus: updated.status,
+      carrierStatus: updated.carrierStatus || "",
+    };
+  }
+
+  async syncActiveGhnShipments(options = {}) {
+    const limit = clampSyncLimit(options.limit, 20);
+    const targets = await Shipment.find({
+      carrier: "GHN",
+      trackingCode: { $exists: true, $ne: "" },
+      status: { $in: Array.from(ACTIVE_SHIPMENT_STATUSES) },
+    })
+      .sort({ updatedAt: 1 })
+      .limit(limit)
+      .select("_id trackingCode status carrierStatus updatedAt");
+
+    const result = {
+      total: targets.length,
+      updated: 0,
+      unchanged: 0,
+      failed: 0,
+      items: [],
     };
 
-    if (map[status]) {
-      return map[status];
+    for (const target of targets) {
+      try {
+        const synced = await this.syncGhnShipmentById(target._id);
+        if (synced.updated) {
+          result.updated += 1;
+        } else {
+          result.unchanged += 1;
+        }
+        result.items.push({
+          shipmentId: target._id.toString(),
+          trackingCode: target.trackingCode,
+          ...synced,
+        });
+      } catch (error) {
+        result.failed += 1;
+        result.items.push({
+          shipmentId: target._id.toString(),
+          trackingCode: target.trackingCode,
+          updated: false,
+          reason: "sync_error",
+          error: error?.message || "Unknown sync error",
+        });
+      }
     }
 
-    // Carrier-specific fallback handling
-    if (carrier === "GHN" && status.includes("delivery")) {
-      return "out_for_delivery";
-    }
+    return result;
+  }
 
-    return null;
+  normalizeCarrierStatus(carrier, rawStatus) {
+    return mapCarrierToInternalStatus(rawStatus, carrier);
   }
 }
 

@@ -61,6 +61,7 @@ export const updateTrackingValidation = Joi.object({
         "returned",
       )
       .optional(),
+    carrierStatus: Joi.string().trim().optional(),
     trackingCode: Joi.string().trim().optional(),
     trackingUrl: Joi.string().uri().allow("", null).optional(),
     estimatedDelivery: Joi.date().iso().allow(null).optional(),
@@ -82,4 +83,18 @@ export const shipmentWebhookValidation = Joi.object({
     carrier: Joi.string().trim().min(2).required(),
   }).required(),
   body: Joi.object().unknown(true).required(),
+});
+
+export const syncShipmentValidation = Joi.object({
+  params: Joi.object({
+    id: objectId.required(),
+  }).required(),
+});
+
+export const syncActiveGhnShipmentsValidation = Joi.object({
+  body: Joi.object({
+    limit: Joi.number().integer().min(1).max(100).optional(),
+  })
+    .unknown(false)
+    .optional(),
 });

@@ -32,6 +32,7 @@ import flashSaleRoutes from "./src/routes/flashSales.js";
 import brandConfigRoutes from "./src/routes/brandConfigs.js";
 import blogRoutes from "./src/routes/blogs.js";
 import orderLifecycleAutomationService from "./src/services/orderLifecycleAutomationService.js";
+import shipmentLifecycleAutomationService from "./src/services/shipmentLifecycleAutomationService.js";
 
 // Socket handlers
 import initializeSocketHandlers from "./src/sockets/handlers.js";
@@ -174,6 +175,7 @@ const startServer = async () => {
   server.listen(PORT, () => {
     console.log(`🚀 Server is running on http://localhost:${PORT}`);
     orderLifecycleAutomationService.start();
+    shipmentLifecycleAutomationService.start();
   });
 };
 
@@ -190,6 +192,7 @@ const shutdown = async (signal) => {
 
   console.log(`[system] received ${signal}, shutting down...`);
   orderLifecycleAutomationService.stop();
+  shipmentLifecycleAutomationService.stop();
 
   if (redisClient?.isOpen) {
     try {

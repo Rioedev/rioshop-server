@@ -8,6 +8,8 @@ import {
   getGhnWards,
   getShippingPolicy,
   getShipment,
+  syncActiveGhnShipments,
+  syncShipmentFromGhn,
   updateTracking,
   shipmentWebhook,
 } from "../controllers/shipmentController.js";
@@ -16,6 +18,8 @@ import {
   ghnFeeValidation,
   ghnWardsValidation,
   shipmentIdValidation,
+  syncActiveGhnShipmentsValidation,
+  syncShipmentValidation,
   updateTrackingValidation,
   shipmentWebhookValidation,
 } from "../validations/shipments.js";
@@ -46,6 +50,20 @@ router.post(
 
 // Get shipment
 router.get("/:id", authenticateToken, validateRequest(shipmentIdValidation), getShipment);
+
+// Sync GHN tracking (manual fallback without webhook)
+router.post(
+  "/:id/sync-ghn",
+  authenticateToken,
+  validateRequest(syncShipmentValidation),
+  syncShipmentFromGhn,
+);
+router.post(
+  "/ghn/sync-active",
+  authenticateToken,
+  validateRequest(syncActiveGhnShipmentsValidation),
+  syncActiveGhnShipments,
+);
 
 // Update tracking
 router.put(

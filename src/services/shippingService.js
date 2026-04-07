@@ -1,4 +1,4 @@
-import axios from "axios";
+﻿import axios from "axios";
 import { AppError } from "../utils/helpers.js";
 
 const GHN_API_BASE_URL =
@@ -72,9 +72,22 @@ const parseGhnApiError = (prefix, error) => {
   );
 };
 
+const normalizeVietnameseSearchText = (value = "") =>
+  value
+    .toString()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
 const isWarehouseLookupError = (error) => {
-  const message = (error?.response?.data?.message || error?.message || "").toString().toLowerCase();
-  return message.includes("không lấy được thông tin kho") || message.includes("khong lay duoc thong tin kho");
+  const rawMessage = error?.response?.data?.message || error?.message || "";
+  const message = normalizeVietnameseSearchText(rawMessage);
+
+  return (
+    message.includes("khong lay duoc thong tin kho") ||
+    message.includes("khong tim thay dia chi shop") ||
+    message.includes("khong tim thay kho")
+  );
 };
 
 // GHN Shipping API
