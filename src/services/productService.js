@@ -10,6 +10,9 @@ import {
   normalizeSkuInput,
 } from "../utils/productSku.js";
 
+const escapeRegex = (value = "") =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 export class ProductService {
   buildInventorySummary(variants = [], reserved = 0) {
     const safeReserved = Math.max(0, Number(reserved || 0));
@@ -348,17 +351,20 @@ export class ProductService {
   async searchProducts(query, filters = {}, options = {}) {
     try {
       const { page = 1, limit = 10 } = options;
+      const regexQuery =
+        query instanceof RegExp
+          ? query
+          : new RegExp(escapeRegex(String(query ?? "").trim()), "i");
 
       const searchQuery = {
         deletedAt: null,
         ...filters,
         $or: [
-          { name: { $regex: query, $options: "i" } },
-          { description: { $regex: query, $options: "i" } },
-          { sku: { $regex: query, $options: "i" } },
-          { slug: { $regex: query, $options: "i" } },
-          { brand: { $regex: query, $options: "i" } },
-          { "variants.sku": { $regex: query, $options: "i" } },
+          { name: regexQuery },
+          { sku: regexQuery },
+          { slug: regexQuery },
+          { brand: regexQuery },
+          { "variants.sku": regexQuery },
         ],
       };
 
