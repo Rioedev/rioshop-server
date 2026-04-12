@@ -5,6 +5,29 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 const OPEN_ORDER_STATUSES = ["pending", "confirmed", "packing", "ready_to_ship", "shipping"];
 const COMPLETED_ORDER_STATUSES = ["delivered", "completed"];
 const CANCELLED_ORDER_STATUSES = ["cancelled", "returned"];
+const COD_PAYMENT_METHOD = "cod";
+
+const REVENUE_PAYMENT_CONDITION = {
+  $or: [
+    { $eq: ["$paymentStatus", "paid"] },
+    {
+      $and: [
+        { $eq: ["$paymentMethod", COD_PAYMENT_METHOD] },
+        { $in: ["$status", COMPLETED_ORDER_STATUSES] },
+      ],
+    },
+  ],
+};
+
+const REVENUE_MATCH_CONDITION = {
+  $or: [
+    { paymentStatus: "paid" },
+    {
+      paymentMethod: COD_PAYMENT_METHOD,
+      status: { $in: COMPLETED_ORDER_STATUSES },
+    },
+  ],
+};
 
 const toDateKey = (date) => date.toISOString().slice(0, 10);
 const formatDateLabel = (dateKey) => {
@@ -211,7 +234,24 @@ export class AnalyticsService {
                         $cond: [
                           { $in: ["$status", CANCELLED_ORDER_STATUSES] },
                           0,
-                          { $ifNull: ["$pricing.total", 0] },
+                          {
+                            $cond: [
+                              REVENUE_PAYMENT_CONDITION,
+                              { $ifNull: ["$pricing.total", 0] },
+                              0,
+                            ],
+                          },
+                        ],
+                      },
+                    },
+                    recognizedRevenueOrders: {
+                      $sum: {
+                        $cond: [
+                          { $in: ["$status", CANCELLED_ORDER_STATUSES] },
+                          0,
+                          {
+                            $cond: [REVENUE_PAYMENT_CONDITION, 1, 0],
+                          },
                         ],
                       },
                     },
@@ -256,6 +296,21 @@ export class AnalyticsService {
                 },
               },
               revenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
+              recognizedRevenue: {
+                $sum: {
+                  $cond: [
+                    { $in: ["$status", CANCELLED_ORDER_STATUSES] },
+                    0,
+                    {
+                      $cond: [
+                        REVENUE_PAYMENT_CONDITION,
+                        { $ifNull: ["$pricing.total", 0] },
+                        0,
+                      ],
+                    },
+                  ],
+                },
+              },
               total: { $sum: 1 },
               pending: {
                 $sum: {
@@ -286,7 +341,21 @@ export class AnalyticsService {
             $group: {
               _id: { $ifNull: ["$paymentMethod", "unknown"] },
               count: { $sum: 1 },
-              revenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
+              revenue: {
+                $sum: {
+                  $cond: [
+                    { $in: ["$status", CANCELLED_ORDER_STATUSES] },
+                    0,
+                    {
+                      $cond: [
+                        REVENUE_PAYMENT_CONDITION,
+                        { $ifNull: ["$pricing.total", 0] },
+                        0,
+                      ],
+                    },
+                  ],
+                },
+              },
             },
           },
           {
@@ -298,6 +367,7 @@ export class AnalyticsService {
             $match: {
               ...orderRangeMatch,
               status: { $nin: CANCELLED_ORDER_STATUSES },
+              ...REVENUE_MATCH_CONDITION,
             },
           },
           {
@@ -354,6 +424,7 @@ export class AnalyticsService {
             $match: {
               ...orderRangeMatch,
               status: { $nin: CANCELLED_ORDER_STATUSES },
+              ...REVENUE_MATCH_CONDITION,
             },
           },
           {
@@ -485,6 +556,7 @@ export class AnalyticsService {
         totalOrders: 0,
         grossRevenue: 0,
         netRevenue: 0,
+        recognizedRevenueOrders: 0,
         cancelledOrders: 0,
         returnedOrders: 0,
         nonCancelledOrders: 0,
@@ -508,7 +580,7 @@ export class AnalyticsService {
         return {
           date: dateKey,
           label: formatDateLabel(dateKey),
-          revenue: Number(row?.revenue || 0),
+          revenue: Number(row?.recognizedRevenue || 0),
           orders: Number(row?.total || 0),
         };
       });
@@ -539,6 +611,7 @@ export class AnalyticsService {
       const safeTotalOrders = Number(totals.totalOrders || 0);
       const safeGrossRevenue = Number(totals.grossRevenue || 0);
       const safeNetRevenue = Number(totals.netRevenue || 0);
+      const safeRecognizedRevenueOrders = Number(totals.recognizedRevenueOrders || 0);
       const safeNonCancelledOrders = Number(totals.nonCancelledOrders || 0);
       const safeCancelledOrders = Number(totals.cancelledOrders || 0);
       const safeReturnedOrders = Number(totals.returnedOrders || 0);
@@ -554,8 +627,8 @@ export class AnalyticsService {
         },
         summary: {
           averageOrderValue:
-            safeNonCancelledOrders > 0
-              ? Number((safeNetRevenue / safeNonCancelledOrders).toFixed(2))
+            safeRecognizedRevenueOrders > 0
+              ? Number((safeNetRevenue / safeRecognizedRevenueOrders).toFixed(2))
               : 0,
           cancellationRate: safePercent(safeCancelledOrders, safeTotalOrders),
           returnRate: safePercent(safeReturnedOrders, safeTotalOrders),
