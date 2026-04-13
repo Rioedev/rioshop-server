@@ -5,6 +5,7 @@ import {
   getPaginationParams,
 } from "../utils/helpers.js";
 import orderService from "../services/orderService.js";
+import { uploadToCloudinary } from "../utils/cloudinary.js";
 
 export const getOrders = asyncHandler(async (req, res) => {
   const { page, limit } = getPaginationParams(req.query.page, req.query.limit);
@@ -70,4 +71,50 @@ export const cancelOrder = asyncHandler(async (req, res) => {
   );
 
   sendSuccess(res, 200, order, "Order cancelled");
+});
+
+export const submitReturnRequest = asyncHandler(async (req, res) => {
+  if (req.user.adminId) {
+    return sendError(res, 403, "Only customer can submit return request");
+  }
+
+  const order = await orderService.submitReturnRequest(req.params.id, req.user.userId, req.body);
+  sendSuccess(res, 200, order, "Return request submitted");
+});
+
+export const updateReturnRequestStatus = asyncHandler(async (req, res) => {
+  if (!req.user.adminId) {
+    return sendError(res, 403, "Only admin can update return request status");
+  }
+
+  const order = await orderService.updateReturnRequestStatus(req.params.id, req.body.status, {
+    note: req.body.note,
+    updatedBy: "admin",
+  });
+
+  sendSuccess(res, 200, order, "Return request status updated");
+});
+
+export const uploadReturnRequestImage = asyncHandler(async (req, res) => {
+  if (!req.file) {
+    return sendError(res, 400, "File image is required");
+  }
+
+  if (!req.file.mimetype?.startsWith("image/")) {
+    return sendError(res, 400, "Only image files are allowed");
+  }
+
+  const base64 = req.file.buffer.toString("base64");
+  const dataUri = `data:${req.file.mimetype};base64,${base64}`;
+  const uploadResult = await uploadToCloudinary(dataUri, "rioshop/orders/return-requests");
+
+  sendSuccess(
+    res,
+    200,
+    {
+      url: uploadResult.secure_url,
+      publicId: uploadResult.public_id,
+    },
+    "Image uploaded successfully",
+  );
 });

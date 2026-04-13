@@ -30,11 +30,24 @@ const AUTO_COMPLETE_DELIVERED_DAYS = toPositiveNumber(
   process.env.AUTO_COMPLETE_DELIVERED_DAYS,
   3,
 );
+const RETURN_REQUEST_WINDOW_DAYS = toPositiveNumber(
+  process.env.RETURN_REQUEST_WINDOW_DAYS,
+  3,
+);
 const ONLINE_PENDING_PAYMENT_METHODS = (process.env.AUTO_CANCEL_PAYMENT_METHODS || "momo,vnpay,zalopay,card")
   .split(",")
   .map((item) => item.trim())
   .filter(Boolean);
 const RETURN_COMPLAINT_ACTIVE_STATUSES = new Set(["pending", "approved"]);
+const RETURN_REQUEST_ALLOWED_ORDER_STATUSES = new Set(["delivered", "completed"]);
+const RETURN_REQUEST_TYPES = new Set(["return", "exchange"]);
+const RETURN_REQUEST_STATUSES = new Set(["pending", "approved", "rejected", "completed"]);
+const RETURN_REQUEST_TRANSITION_MAP = {
+  pending: new Set(["approved", "rejected"]),
+  approved: new Set(["completed", "rejected"]),
+  rejected: new Set(),
+  completed: new Set(),
+};
 
 const ORDER_STATUSES = new Set([
   "pending",
@@ -85,7 +98,7 @@ const buildInventoryPhaseConfig = () => {
 
 const { reservationStatuses: RESERVATION_STATUSES, committedStatuses: COMMITTED_INVENTORY_STATUSES } =
   buildInventoryPhaseConfig();
-const TERMINAL_STATUSES = new Set(["cancelled", "returned", "completed"]);
+const TERMINAL_STATUSES = new Set(["cancelled", "returned"]);
 const ALLOWED_STATUS_TRANSITIONS = {
   pending: new Set(["confirmed", "packing", "ready_to_ship", "shipping", "cancelled"]),
   confirmed: new Set(["packing", "ready_to_ship", "shipping", "cancelled"]),
@@ -93,7 +106,7 @@ const ALLOWED_STATUS_TRANSITIONS = {
   ready_to_ship: new Set(["shipping", "cancelled"]),
   shipping: new Set(["delivered", "returned", "cancelled"]),
   delivered: new Set(["completed", "returned"]),
-  completed: new Set(),
+  completed: new Set(["returned"]),
   cancelled: new Set(),
   returned: new Set(),
 };
@@ -163,6 +176,7 @@ export class OrderService {
       customerStatus: resolveCustomerStatus({
         orderStatus: plainOrder.status || "",
         carrierStatus,
+        returnRequestStatus: plainOrder.returnRequest?.status || "",
       }),
     };
   }
@@ -401,8 +415,19 @@ export class OrderService {
         await this.applyInventoryForStatusTransition(order.items || [], order.status, nextStatus, session);
 
         order.status = nextStatus;
-        if (paymentStatus) {
-          order.paymentStatus = paymentStatus;
+
+        const shouldAutoMarkCodPaid =
+          !paymentStatus &&
+          order.paymentMethod === "cod" &&
+          ["delivered", "completed"].includes(nextStatus) &&
+          ["pending", "failed"].includes(order.paymentStatus || "pending");
+        const nextPaymentStatus = paymentStatus || (shouldAutoMarkCodPaid ? "paid" : null);
+
+        if (nextPaymentStatus) {
+          order.paymentStatus = nextPaymentStatus;
+        }
+        if (nextStatus === "returned" && order.returnRequest) {
+          order.returnRequest.status = "completed";
         }
         if (note) {
           order.adminNote = note;
@@ -543,6 +568,207 @@ export class OrderService {
     return cancelledOrder;
   }
 
+  resolveDeliveredAtForReturnRequest(order) {
+    const timeline = Array.isArray(order?.timeline) ? order.timeline : [];
+
+    for (let index = timeline.length - 1; index >= 0; index -= 1) {
+      const event = timeline[index];
+      if ((event?.status || "").toString().trim() !== "delivered") {
+        continue;
+      }
+
+      const deliveredAt = new Date(event?.at || "");
+      if (!Number.isNaN(deliveredAt.getTime())) {
+        return deliveredAt;
+      }
+    }
+
+    if (!RETURN_REQUEST_ALLOWED_ORDER_STATUSES.has((order?.status || "").toString().trim())) {
+      return null;
+    }
+
+    const fallbackDates = [order?.updatedAt, order?.createdAt];
+    for (const value of fallbackDates) {
+      const parsed = new Date(value || "");
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed;
+      }
+    }
+
+    return null;
+  }
+
+  async submitReturnRequest(orderId, userId, payload = {}) {
+    if (!userId) {
+      throw new AppError("User authentication required", 401);
+    }
+
+    const requestType = (payload.type || "").toString().trim().toLowerCase();
+    const reason = (payload.reason || "").toString().trim();
+    const note = (payload.note || "").toString().trim();
+    const images = Array.isArray(payload.images)
+      ? payload.images
+          .map((item) => (item || "").toString().trim())
+          .filter(Boolean)
+      : [];
+
+    if (!RETURN_REQUEST_TYPES.has(requestType)) {
+      throw new AppError("Invalid return request type", 400);
+    }
+
+    if (!reason) {
+      throw new AppError("Return request reason is required", 400);
+    }
+
+    const order = await Order.findOne({ _id: orderId, userId });
+    if (!order) {
+      throw new AppError("Order not found", 404);
+    }
+
+    if (!RETURN_REQUEST_ALLOWED_ORDER_STATUSES.has(order.status)) {
+      throw new AppError("Return request is only allowed for delivered or completed orders", 400);
+    }
+
+    if (RETURN_COMPLAINT_ACTIVE_STATUSES.has(order?.returnRequest?.status || "")) {
+      throw new AppError("A return request is already in progress", 409);
+    }
+
+    const deliveredAt = this.resolveDeliveredAtForReturnRequest(order);
+    if (!deliveredAt) {
+      throw new AppError("Cannot determine delivered date for this order", 400);
+    }
+
+    const deadlineAt = new Date(
+      deliveredAt.getTime() + RETURN_REQUEST_WINDOW_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const now = new Date();
+
+    if (now > deadlineAt) {
+      throw new AppError(
+        `Return request period expired (${RETURN_REQUEST_WINDOW_DAYS} day(s) after delivery)`,
+        400,
+      );
+    }
+
+    order.returnRequest = {
+      type: requestType,
+      reason,
+      note,
+      images,
+      status: "pending",
+      requestedAt: now,
+    };
+    order.timeline = order.timeline || [];
+    order.timeline.push({
+      status: "return_requested",
+      note:
+        requestType === "exchange"
+          ? "Customer submitted an exchange request"
+          : "Customer submitted a return request",
+      at: now,
+      by: "user",
+    });
+    order.updatedAt = now;
+
+    await order.save();
+
+    const refreshedOrder = await this.getOrderById(order._id.toString(), userId);
+    void notificationService.notifyReturnRequestSubmitted(refreshedOrder);
+    this.emitOrderRealtimeUpdate(refreshedOrder, {
+      action: "return_requested",
+      source: "submit_return_request",
+    });
+    return refreshedOrder;
+  }
+
+  async updateReturnRequestStatus(orderId, status, payload = {}) {
+    const { note = "", updatedBy = "admin" } = payload;
+    const nextStatus = (status || "").toString().trim().toLowerCase();
+    const normalizedNote = (note || "").toString().trim();
+
+    if (!RETURN_REQUEST_STATUSES.has(nextStatus)) {
+      throw new AppError("Invalid return request status", 400);
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      throw new AppError("Order not found", 404);
+    }
+
+    if (!order.returnRequest?.type) {
+      throw new AppError("Order does not have return request", 400);
+    }
+
+    const currentStatusToken = (order.returnRequest.status || "").toString().trim().toLowerCase();
+    const currentStatus = RETURN_REQUEST_STATUSES.has(currentStatusToken) ? currentStatusToken : "pending";
+
+    if (currentStatus === nextStatus) {
+      return this.getOrderById(order._id.toString(), null);
+    }
+
+    const allowedTransitions = RETURN_REQUEST_TRANSITION_MAP[currentStatus] || new Set();
+    if (!allowedTransitions.has(nextStatus)) {
+      throw new AppError(
+        `Cannot change return request status from ${currentStatus} to ${nextStatus}`,
+        400,
+      );
+    }
+
+    const requestType = (order.returnRequest.type || "return").toString().trim().toLowerCase();
+    if (nextStatus === "completed" && requestType === "return" && order.status !== "returned") {
+      throw new AppError(
+        "Return request can only be completed after order is marked returned",
+        400,
+      );
+    }
+
+    const statusTimelineNoteMap = {
+      approved:
+        requestType === "exchange"
+          ? "Admin approved exchange request"
+          : "Admin approved return request",
+      rejected:
+        requestType === "exchange"
+          ? "Admin rejected exchange request"
+          : "Admin rejected return request",
+      completed:
+        requestType === "exchange"
+          ? "Exchange request completed"
+          : "Return request completed",
+    };
+
+    order.returnRequest.status = nextStatus;
+    if (normalizedNote) {
+      order.adminNote = normalizedNote;
+    }
+    order.timeline = order.timeline || [];
+
+    const baseTimelineNote = statusTimelineNoteMap[nextStatus] || "Return request status updated";
+    const timelineNote = normalizedNote ? `${baseTimelineNote}. Note: ${normalizedNote}` : baseTimelineNote;
+
+    order.timeline.push({
+      status: `return_request_${nextStatus}`,
+      note: timelineNote,
+      at: new Date(),
+      by: updatedBy,
+    });
+    order.updatedAt = new Date();
+    await order.save();
+
+    const refreshedOrder = await this.getOrderById(order._id.toString(), null);
+    void notificationService.notifyReturnRequestStatusChanged(
+      refreshedOrder,
+      currentStatus,
+      nextStatus,
+      normalizedNote,
+    );
+    this.emitOrderRealtimeUpdate(refreshedOrder, {
+      action: "return_request_status_changed",
+      source: "update_return_request_status",
+    });
+    return refreshedOrder;
+  }
+
   async attachPayment(orderId, paymentId, paymentStatus = "paid") {
     try {
       const order = await Order.findById(orderId);
@@ -595,6 +821,7 @@ export class OrderService {
       resolveCustomerStatus({
         orderStatus: order.status || "",
         carrierStatus,
+        returnRequestStatus: order.returnRequest?.status || "",
       });
 
     io.emitOrderUpdate(orderId, {

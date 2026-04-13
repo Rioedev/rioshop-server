@@ -166,10 +166,31 @@ export class ShipmentService {
       if (shipment.orderId) {
         const mappedOrderStatus = SHIPMENT_TO_ORDER_STATUS[shipment.status];
         if (mappedOrderStatus) {
-          const order = await Order.findById(shipment.orderId).select("_id status");
+          const order = await Order.findById(shipment.orderId).select(
+            "_id status paymentMethod paymentStatus",
+          );
           if (order && order.status !== mappedOrderStatus) {
+            const shouldAutoMarkCodPaid =
+              shipment.status === "delivered" &&
+              order.paymentMethod === "cod" &&
+              Number(shipment.codAmount || 0) > 0 &&
+              ["pending", "failed"].includes(order.paymentStatus || "pending");
+
             await orderService.updateOrderStatus(order._id, mappedOrderStatus, {
               note: data.note || "",
+              paymentStatus: shouldAutoMarkCodPaid ? "paid" : undefined,
+              updatedBy: "system",
+            });
+          } else if (
+            order &&
+            shipment.status === "delivered" &&
+            order.paymentMethod === "cod" &&
+            Number(shipment.codAmount || 0) > 0 &&
+            ["pending", "failed"].includes(order.paymentStatus || "pending")
+          ) {
+            await orderService.updateOrderStatus(order._id, order.status, {
+              note: data.note || "COD collected on delivery",
+              paymentStatus: "paid",
               updatedBy: "system",
             });
           }

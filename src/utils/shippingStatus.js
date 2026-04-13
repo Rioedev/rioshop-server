@@ -117,20 +117,37 @@ export const resolveCarrierStatusForOrder = (order = {}) => {
   return mapInternalToCarrierStatus(shipment.status || "");
 };
 
-export const resolveCustomerStatus = ({ orderStatus = "", carrierStatus = "" } = {}) => {
+export const resolveCustomerStatus = ({
+  orderStatus = "",
+  carrierStatus = "",
+  returnRequestStatus = "",
+} = {}) => {
   const normalizedOrderStatus = normalizeStatusToken(orderStatus);
   const normalizedCarrierStatus = normalizeCarrierStatusToken(carrierStatus);
+  const normalizedReturnRequestStatus = normalizeStatusToken(returnRequestStatus);
 
   if (normalizedOrderStatus === "cancelled") {
     return "cancelled";
+  }
+
+  if (normalizedCarrierStatus === "returned" || normalizedOrderStatus === "returned") {
+    return "returned";
+  }
+
+  if (normalizedReturnRequestStatus === "pending" || normalizedReturnRequestStatus === "approved") {
+    return "return_in_progress";
   }
 
   if (normalizedOrderStatus === "completed") {
     return "completed";
   }
 
-  if (normalizedCarrierStatus === "returned" || normalizedOrderStatus === "returned") {
-    return "returned";
+  if (normalizedOrderStatus === "confirmed") {
+    return "confirmed";
+  }
+
+  if (normalizedOrderStatus === "packing") {
+    return "packing";
   }
 
   if (RETURN_IN_PROGRESS_CARRIER_STATUSES.has(normalizedCarrierStatus)) {

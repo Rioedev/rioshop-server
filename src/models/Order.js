@@ -32,7 +32,13 @@ const timelineSchema = new mongoose.Schema(
 
 const returnRequestSchema = new mongoose.Schema(
   {
+    type: {
+      type: String,
+      enum: ["return", "exchange"],
+      default: "return",
+    },
     reason: String,
+    note: String,
     images: [String],
     status: {
       type: String,

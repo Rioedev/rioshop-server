@@ -63,6 +63,27 @@ const PAYMENT_STATUS_LABELS = {
   refunded: "Đã hoàn tiền",
 };
 
+const RETURN_REQUEST_TYPE_LABELS = {
+  return: "trả hàng",
+  exchange: "đổi hàng",
+};
+
+const RETURN_REQUEST_STATUS_LABELS = {
+  pending: "đang chờ xử lý",
+  approved: "đã được chấp nhận",
+  rejected: "đã bị từ chối",
+  completed: "đã hoàn tất",
+};
+
+const buildAdminOrderLink = (orderId = "") => {
+  const normalizedOrderId = orderId?.toString?.().trim?.() || "";
+  if (!normalizedOrderId) {
+    return "/admin/orders";
+  }
+
+  return `/admin/orders?focusOrderId=${encodeURIComponent(normalizedOrderId)}`;
+};
+
 export class NotificationService {
   async getUserNotifications(userId, options = {}) {
     const { page = 1, limit = 20, unreadOnly = false } = options;
@@ -237,7 +258,7 @@ export class NotificationService {
           type: "system",
           title: "Đơn hàng mới",
           body: `Có đơn ${orderNumber} vừa được tạo, vui lòng kiểm tra và xử lý.`,
-          link: "/admin/orders",
+          link: buildAdminOrderLink(orderId),
           channel: ["in_app"],
         });
       });
@@ -279,7 +300,7 @@ export class NotificationService {
             type: "system",
             title: "Đơn hàng bị hủy",
             body: `Đơn ${orderNumber} đã bị hủy, vui lòng kiểm tra nguyên nhân.`,
-            link: "/admin/orders",
+            link: buildAdminOrderLink(orderId),
             channel: ["in_app"],
           });
         });
@@ -288,6 +309,79 @@ export class NotificationService {
       await this.createNotifications(rows);
     } catch {
       // Do not block order flow due to notification error.
+    }
+  }
+
+  async notifyReturnRequestSubmitted(order) {
+    try {
+      const orderId = order?._id?.toString?.() || order?.id?.toString?.() || "";
+      const orderNumber = order?.orderNumber || orderId;
+      const ownerUserId = order?.userId?.toString?.() || null;
+      const requestType = (order?.returnRequest?.type || "return").toString().trim().toLowerCase();
+      const typeLabel = requestType === "exchange" ? "đổi hàng" : "trả hàng";
+      const reason = (order?.returnRequest?.reason || "").toString().trim();
+      const reasonSuffix = reason ? ` Lý do: ${reason}` : "";
+
+      const rows = [];
+
+      if (ownerUserId) {
+        rows.push({
+          userId: ownerUserId,
+          type: "order_update",
+          title: "Đã gửi yêu cầu đổi/trả",
+          body: `Yêu cầu ${typeLabel} cho đơn ${orderNumber} đã được ghi nhận.${reasonSuffix}`,
+          link: orderId ? `/orders/${orderId}` : "/orders",
+          channel: ["in_app"],
+        });
+      }
+
+      const adminIds = await this.getActiveAdminIds();
+      adminIds.forEach((adminId) => {
+        rows.push({
+          userId: adminId,
+          type: "system",
+          title: "Yêu cầu đổi/trả mới",
+          body: `Đơn ${orderNumber} có yêu cầu ${typeLabel}, vui lòng kiểm tra và xử lý.`,
+          link: buildAdminOrderLink(orderId),
+          channel: ["in_app"],
+        });
+      });
+
+      await this.createNotifications(rows);
+    } catch {
+      // Do not block return request flow due to notification error.
+    }
+  }
+
+  async notifyReturnRequestStatusChanged(order, previousStatus = "", nextStatus = "", note = "") {
+    try {
+      const orderId = order?._id?.toString?.() || order?.id?.toString?.() || "";
+      const orderNumber = order?.orderNumber || orderId;
+      const ownerUserId = order?.userId?.toString?.() || null;
+      const requestType = (order?.returnRequest?.type || "return").toString().trim().toLowerCase();
+
+      if (!ownerUserId || !nextStatus) {
+        return;
+      }
+
+      const typeLabel = RETURN_REQUEST_TYPE_LABELS[requestType] || "đổi/trả";
+      const previousStatusLabel =
+        RETURN_REQUEST_STATUS_LABELS[previousStatus] || previousStatus || "trạng thái trước";
+      const nextStatusLabel = RETURN_REQUEST_STATUS_LABELS[nextStatus] || nextStatus;
+      const noteSuffix = note ? ` Ghi chú: ${note}` : "";
+
+      await this.createNotifications([
+        {
+          userId: ownerUserId,
+          type: "order_update",
+          title: "Yêu cầu đổi/trả đã được cập nhật",
+          body: `Yêu cầu ${typeLabel} của đơn ${orderNumber} đã chuyển từ ${previousStatusLabel} sang ${nextStatusLabel}.${noteSuffix}`,
+          link: orderId ? `/orders/${orderId}` : "/orders",
+          channel: ["in_app"],
+        },
+      ]);
+    } catch {
+      // Do not block return request flow due to notification error.
     }
   }
 
@@ -321,7 +415,7 @@ export class NotificationService {
             type: "system",
             title: "Cảnh báo thanh toán lỗi",
             body: `Đơn ${orderNumber} có giao dịch thanh toán thất bại, cần kiểm tra lại.`,
-            link: "/admin/orders",
+            link: buildAdminOrderLink(orderId),
             channel: ["in_app"],
           });
         });
