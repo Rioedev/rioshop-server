@@ -20,6 +20,13 @@ const PAYMENT_STATUS_LABELS = {
 };
 
 const ONLINE_PAYMENT_METHODS = new Set(["momo", "vnpay", "zalopay", "card", "bank_transfer"]);
+const EMAIL_BRAND = {
+  primary: "#1d4ed8",
+  text: "#0f172a",
+  muted: "#64748b",
+  border: "#e2e8f0",
+  surface: "#f8fafc",
+};
 
 const resolveOrderStatusLabel = (order = null, status = "") => {
   const nextStatus = (status || "").toString().trim();
@@ -57,6 +64,79 @@ const formatCurrency = (value = 0, currency = "VND") =>
     currency,
     maximumFractionDigits: 0,
   }).format(Number(value || 0));
+
+const escapeHtml = (value = "") =>
+  String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+
+const renderInfoRows = (rows = []) =>
+  rows
+    .map(
+      (row) => `
+        <tr>
+          <td style="padding: 8px 0; color: ${EMAIL_BRAND.muted}; width: 170px; vertical-align: top;">
+            ${escapeHtml(row.label || "")}
+          </td>
+          <td style="padding: 8px 0; color: ${EMAIL_BRAND.text}; font-weight: 600;">
+            ${escapeHtml(row.value || "-")}
+          </td>
+        </tr>
+      `,
+    )
+    .join("");
+
+const buildEmailLayout = ({
+  title = "",
+  subtitle = "",
+  contentHtml = "",
+  actionUrl = "",
+  actionLabel = "",
+  footerText = "Nếu bạn cần hỗ trợ, hãy phản hồi email này để đội ngũ RioShop hỗ trợ nhanh nhất.",
+}) => `
+  <div style="margin: 0; padding: 24px 12px; background: #f1f5f9; font-family: Arial, sans-serif; color: ${EMAIL_BRAND.text};">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width: 640px; margin: 0 auto; border-collapse: collapse;">
+      <tr>
+        <td style="padding: 0;">
+          <div style="background: linear-gradient(135deg, #1d4ed8, #2563eb); border-radius: 14px 14px 0 0; padding: 22px 24px;">
+            <div style="font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #bfdbfe; font-weight: 700;">RioShop</div>
+            <h1 style="margin: 8px 0 0; font-size: 22px; line-height: 1.35; color: #ffffff;">
+              ${escapeHtml(title)}
+            </h1>
+          </div>
+          <div style="background: #ffffff; border: 1px solid ${EMAIL_BRAND.border}; border-top: none; border-radius: 0 0 14px 14px; padding: 24px;">
+            ${
+              subtitle
+                ? `<p style="margin: 0 0 16px; color: ${EMAIL_BRAND.muted}; line-height: 1.6;">${escapeHtml(subtitle)}</p>`
+                : ""
+            }
+            ${contentHtml}
+            ${
+              actionUrl && actionLabel
+                ? `
+                <p style="margin: 22px 0 0;">
+                  <a
+                    href="${escapeHtml(actionUrl)}"
+                    style="display: inline-block; background: ${EMAIL_BRAND.primary}; color: #ffffff; text-decoration: none; padding: 11px 18px; border-radius: 10px; font-weight: 700;"
+                  >
+                    ${escapeHtml(actionLabel)}
+                  </a>
+                </p>
+              `
+                : ""
+            }
+          </div>
+          <p style="margin: 12px 4px 0; color: ${EMAIL_BRAND.muted}; font-size: 12px; line-height: 1.5;">
+            ${escapeHtml(footerText)}
+          </p>
+        </td>
+      </tr>
+    </table>
+  </div>
+`;
 
 class EmailService {
   constructor() {
@@ -226,27 +306,58 @@ class EmailService {
     const total = formatCurrency(order?.pricing?.total || 0, order?.pricing?.currency || "VND");
     const paymentMethod = (order?.paymentMethod || "cod").toString().toUpperCase();
     const statusLabel = resolveOrderStatusLabel(order, order?.status || "pending");
+    const createdAtText = order?.createdAt
+      ? new Intl.DateTimeFormat("vi-VN", { dateStyle: "short", timeStyle: "short" }).format(
+          new Date(order.createdAt),
+        )
+      : "";
 
     const itemsHtml = (order?.items || [])
       .slice(0, 8)
       .map((item) => {
         const lineTotal = formatCurrency(item.totalPrice || 0, order?.pricing?.currency || "VND");
-        return `<li>${item.productName} (${item.variantLabel}) x ${item.quantity} - ${lineTotal}</li>`;
+        return `
+          <tr>
+            <td style="padding: 8px 0; color: ${EMAIL_BRAND.text};">
+              ${escapeHtml(item.productName || "Sản phẩm")} ${item.variantLabel ? `(${escapeHtml(item.variantLabel)})` : ""}
+            </td>
+            <td style="padding: 8px 0; text-align: right; color: ${EMAIL_BRAND.muted};">
+              x${Number(item.quantity || 0)}
+            </td>
+            <td style="padding: 8px 0 8px 12px; text-align: right; color: ${EMAIL_BRAND.text}; font-weight: 700;">
+              ${escapeHtml(lineTotal)}
+            </td>
+          </tr>
+        `;
       })
       .join("");
 
-    const html = `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
-        <h2 style="margin: 0 0 12px;">Xác nhận đơn hàng ${orderNumber}</h2>
-        <p>RioShop đã nhận đơn của bạn.</p>
-        <p><strong>Trạng thái:</strong> ${statusLabel}</p>
-        <p><strong>Tổng thanh toán:</strong> ${total}</p>
-        <p><strong>Phương thức thanh toán:</strong> ${paymentMethod}</p>
-        <p><strong>Sản phẩm:</strong></p>
-        <ul>${itemsHtml}</ul>
-        ${detailUrl ? `<p><a href="${detailUrl}">Xem chi tiết đơn hàng</a></p>` : ""}
+    const contentHtml = `
+      <div style="border: 1px solid ${EMAIL_BRAND.border}; border-radius: 12px; background: ${EMAIL_BRAND.surface}; padding: 14px 16px;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+          ${renderInfoRows([
+            { label: "Mã đơn", value: orderNumber },
+            { label: "Trạng thái", value: statusLabel },
+            { label: "Tổng thanh toán", value: total },
+            { label: "Phương thức thanh toán", value: paymentMethod },
+            { label: "Thời gian đặt", value: createdAtText || "-" },
+          ])}
+        </table>
+      </div>
+      <div style="margin-top: 16px; border: 1px solid ${EMAIL_BRAND.border}; border-radius: 12px; padding: 12px 16px;">
+        <p style="margin: 0 0 8px; font-weight: 700; color: ${EMAIL_BRAND.text};">Sản phẩm trong đơn</p>
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+          ${itemsHtml || `<tr><td style="padding: 6px 0; color: ${EMAIL_BRAND.muted};">Chưa có dữ liệu sản phẩm.</td></tr>`}
+        </table>
       </div>
     `;
+    const html = buildEmailLayout({
+      title: `Xác nhận đơn hàng ${orderNumber}`,
+      subtitle: "RioShop đã nhận đơn của bạn. Cảm ơn bạn đã mua sắm cùng chúng tôi.",
+      contentHtml,
+      actionUrl: detailUrl,
+      actionLabel: "Xem chi tiết đơn hàng",
+    });
 
     const text = `Don hang ${orderNumber} da duoc tao. Tong thanh toan: ${total}.`;
 
@@ -276,15 +387,23 @@ class EmailService {
     const previousStatusLabel = ORDER_STATUS_LABELS[previousStatus] || previousStatus;
     const detailUrl = this.getOrderDetailUrl(order?._id?.toString());
 
-    const html = `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
-        <h2 style="margin: 0 0 12px;">Cập nhật đơn hàng ${orderNumber}</h2>
-        <p>Trạng thái đơn hàng của bạn đã được cập nhật.</p>
-        <p><strong>Từ:</strong> ${previousStatusLabel || "N/A"}</p>
-        <p><strong>Sang:</strong> ${nextStatusLabel}</p>
-        ${detailUrl ? `<p><a href="${detailUrl}">Xem chi tiết đơn hàng</a></p>` : ""}
-      </div>
-    `;
+    const html = buildEmailLayout({
+      title: `Cập nhật đơn hàng ${orderNumber}`,
+      subtitle: "Trạng thái đơn hàng của bạn vừa được cập nhật.",
+      contentHtml: `
+        <div style="border: 1px solid ${EMAIL_BRAND.border}; border-radius: 12px; background: ${EMAIL_BRAND.surface}; padding: 14px 16px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+            ${renderInfoRows([
+              { label: "Mã đơn", value: orderNumber },
+              { label: "Từ trạng thái", value: previousStatusLabel || "N/A" },
+              { label: "Sang trạng thái", value: nextStatusLabel },
+            ])}
+          </table>
+        </div>
+      `,
+      actionUrl: detailUrl,
+      actionLabel: "Xem chi tiết đơn hàng",
+    });
 
     return this.sendMail({
       to: email,
@@ -314,14 +433,23 @@ class EmailService {
       PAYMENT_STATUS_LABELS[previousPaymentStatus] || previousPaymentStatus || "N/A";
     const detailUrl = this.getOrderDetailUrl(order?._id?.toString());
 
-    const html = `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
-        <h2 style="margin: 0 0 12px;">Cập nhật thanh toán đơn ${orderNumber}</h2>
-        <p><strong>Từ:</strong> ${previousLabel}</p>
-        <p><strong>Sang:</strong> ${nextLabel}</p>
-        ${detailUrl ? `<p><a href="${detailUrl}">Xem chi tiết đơn hàng</a></p>` : ""}
-      </div>
-    `;
+    const html = buildEmailLayout({
+      title: `Cập nhật thanh toán đơn ${orderNumber}`,
+      subtitle: "Thông tin thanh toán của đơn hàng đã thay đổi.",
+      contentHtml: `
+        <div style="border: 1px solid ${EMAIL_BRAND.border}; border-radius: 12px; background: ${EMAIL_BRAND.surface}; padding: 14px 16px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+            ${renderInfoRows([
+              { label: "Mã đơn", value: orderNumber },
+              { label: "Từ trạng thái", value: previousLabel },
+              { label: "Sang trạng thái", value: nextLabel },
+            ])}
+          </table>
+        </div>
+      `,
+      actionUrl: detailUrl,
+      actionLabel: "Xem chi tiết đơn hàng",
+    });
 
     return this.sendMail({
       to: email,
@@ -348,16 +476,25 @@ class EmailService {
       ? `${storefrontUrl}/forgot-password?userId=${encodeURIComponent(userId)}&token=${encodeURIComponent(resetToken)}`
       : "";
 
-    const html = `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
-        <h2 style="margin: 0 0 12px;">Yêu cầu đặt lại mật khẩu</h2>
-        <p>Bạn vừa yêu cầu đặt lại mật khẩu cho tài khoản RioShop.</p>
-        ${resetUrl ? `<p><a href="${resetUrl}">Mở trang đặt lại mật khẩu</a></p>` : ""}
-        <p><strong>Mã user:</strong> ${userId}</p>
-        <p><strong>Reset token:</strong> ${resetToken}</p>
-        <p>Token có hiệu lực trong 1 giờ.</p>
-      </div>
-    `;
+    const html = buildEmailLayout({
+      title: "Yêu cầu đặt lại mật khẩu",
+      subtitle: "Bạn vừa yêu cầu đặt lại mật khẩu cho tài khoản RioShop.",
+      contentHtml: `
+        <div style="border: 1px solid ${EMAIL_BRAND.border}; border-radius: 12px; background: ${EMAIL_BRAND.surface}; padding: 14px 16px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+            ${renderInfoRows([
+              { label: "Mã user", value: userId },
+              { label: "Reset token", value: resetToken },
+              { label: "Hiệu lực", value: "1 giờ kể từ khi nhận email" },
+            ])}
+          </table>
+        </div>
+      `,
+      actionUrl: resetUrl,
+      actionLabel: "Mở trang đặt lại mật khẩu",
+      footerText:
+        "Nếu bạn không yêu cầu đổi mật khẩu, hãy bỏ qua email này để bảo toàn tài khoản.",
+    });
 
     return this.sendMail({
       to: email,
@@ -381,13 +518,19 @@ class EmailService {
     const storefrontUrl = this.getStorefrontUrl().replace(/\/+$/, "");
     const fullName = userData?.fullName || "ban";
 
-    const html = `
-      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #0f172a;">
-        <h2 style="margin: 0 0 12px;">Chao mung den voi RioShop</h2>
-        <p>Xin chao ${fullName}, tai khoan cua ban da duoc tao thanh cong.</p>
-        ${storefrontUrl ? `<p><a href="${storefrontUrl}">Bat dau mua sam</a></p>` : ""}
-      </div>
-    `;
+    const html = buildEmailLayout({
+      title: "Chào mừng bạn đến với RioShop",
+      subtitle: `Xin chào ${fullName}, tài khoản của bạn đã được tạo thành công.`,
+      contentHtml: `
+        <div style="border: 1px solid ${EMAIL_BRAND.border}; border-radius: 12px; background: ${EMAIL_BRAND.surface}; padding: 14px 16px;">
+          <p style="margin: 0; color: ${EMAIL_BRAND.text};">
+            Bạn có thể bắt đầu mua sắm ngay, theo dõi đơn hàng và tích điểm thành viên trên RioShop.
+          </p>
+        </div>
+      `,
+      actionUrl: storefrontUrl,
+      actionLabel: "Bắt đầu mua sắm",
+    });
 
     return this.sendMail({
       to: email,
