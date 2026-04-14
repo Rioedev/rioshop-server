@@ -64,7 +64,7 @@ const PAYMENT_STATUS_LABELS = {
 };
 
 const RETURN_REQUEST_TYPE_LABELS = {
-  return: "trả hàng",
+  return: "đổi hàng",
   exchange: "đổi hàng",
 };
 
@@ -317,8 +317,8 @@ export class NotificationService {
       const orderId = order?._id?.toString?.() || order?.id?.toString?.() || "";
       const orderNumber = order?.orderNumber || orderId;
       const ownerUserId = order?.userId?.toString?.() || null;
-      const requestType = (order?.returnRequest?.type || "return").toString().trim().toLowerCase();
-      const typeLabel = requestType === "exchange" ? "đổi hàng" : "trả hàng";
+      const requestType = (order?.returnRequest?.type || "exchange").toString().trim().toLowerCase();
+      const typeLabel = RETURN_REQUEST_TYPE_LABELS[requestType] || "đổi hàng";
       const reason = (order?.returnRequest?.reason || "").toString().trim();
       const reasonSuffix = reason ? ` Lý do: ${reason}` : "";
 
@@ -328,7 +328,7 @@ export class NotificationService {
         rows.push({
           userId: ownerUserId,
           type: "order_update",
-          title: "Đã gửi yêu cầu đổi/trả",
+          title: "Đã gửi yêu cầu đổi hàng",
           body: `Yêu cầu ${typeLabel} cho đơn ${orderNumber} đã được ghi nhận.${reasonSuffix}`,
           link: orderId ? `/orders/${orderId}` : "/orders",
           channel: ["in_app"],
@@ -340,7 +340,7 @@ export class NotificationService {
         rows.push({
           userId: adminId,
           type: "system",
-          title: "Yêu cầu đổi/trả mới",
+          title: "Yêu cầu đổi hàng mới",
           body: `Đơn ${orderNumber} có yêu cầu ${typeLabel}, vui lòng kiểm tra và xử lý.`,
           link: buildAdminOrderLink(orderId),
           channel: ["in_app"],
@@ -358,13 +358,13 @@ export class NotificationService {
       const orderId = order?._id?.toString?.() || order?.id?.toString?.() || "";
       const orderNumber = order?.orderNumber || orderId;
       const ownerUserId = order?.userId?.toString?.() || null;
-      const requestType = (order?.returnRequest?.type || "return").toString().trim().toLowerCase();
+      const requestType = (order?.returnRequest?.type || "exchange").toString().trim().toLowerCase();
 
       if (!ownerUserId || !nextStatus) {
         return;
       }
 
-      const typeLabel = RETURN_REQUEST_TYPE_LABELS[requestType] || "đổi/trả";
+      const typeLabel = RETURN_REQUEST_TYPE_LABELS[requestType] || "đổi hàng";
       const previousStatusLabel =
         RETURN_REQUEST_STATUS_LABELS[previousStatus] || previousStatus || "trạng thái trước";
       const nextStatusLabel = RETURN_REQUEST_STATUS_LABELS[nextStatus] || nextStatus;
@@ -374,7 +374,7 @@ export class NotificationService {
         {
           userId: ownerUserId,
           type: "order_update",
-          title: "Yêu cầu đổi/trả đã được cập nhật",
+          title: "Yêu cầu đổi hàng đã được cập nhật",
           body: `Yêu cầu ${typeLabel} của đơn ${orderNumber} đã chuyển từ ${previousStatusLabel} sang ${nextStatusLabel}.${noteSuffix}`,
           link: orderId ? `/orders/${orderId}` : "/orders",
           channel: ["in_app"],

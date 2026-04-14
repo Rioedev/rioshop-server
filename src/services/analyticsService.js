@@ -6,20 +6,28 @@ const OPEN_ORDER_STATUSES = ["pending", "confirmed", "packing", "ready_to_ship",
 const COMPLETED_ORDER_STATUSES = ["delivered", "completed"];
 const CANCELLED_ORDER_STATUSES = ["cancelled", "returned"];
 const COD_PAYMENT_METHOD = "cod";
+const NON_REPLACEMENT_ORDER_QUERY = { "exchangeMeta.isReplacement": { $ne: true } };
+const NON_REPLACEMENT_ORDER_EXPR = { $ne: ["$exchangeMeta.isReplacement", true] };
 
 const REVENUE_PAYMENT_CONDITION = {
-  $or: [
-    { $eq: ["$paymentStatus", "paid"] },
+  $and: [
+    NON_REPLACEMENT_ORDER_EXPR,
     {
-      $and: [
-        { $eq: ["$paymentMethod", COD_PAYMENT_METHOD] },
-        { $in: ["$status", COMPLETED_ORDER_STATUSES] },
+      $or: [
+        { $eq: ["$paymentStatus", "paid"] },
+        {
+          $and: [
+            { $eq: ["$paymentMethod", COD_PAYMENT_METHOD] },
+            { $in: ["$status", COMPLETED_ORDER_STATUSES] },
+          ],
+        },
       ],
     },
   ],
 };
 
 const REVENUE_MATCH_CONDITION = {
+  ...NON_REPLACEMENT_ORDER_QUERY,
   $or: [
     { paymentStatus: "paid" },
     {
@@ -226,12 +234,20 @@ export class AnalyticsService {
               totals: [
                 {
                   $group: {
-                    _id: null,
-                    totalOrders: { $sum: 1 },
-                    grossRevenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
-                    netRevenue: {
-                      $sum: {
-                        $cond: [
+                  _id: null,
+                  totalOrders: { $sum: 1 },
+                  grossRevenue: {
+                    $sum: {
+                      $cond: [
+                        NON_REPLACEMENT_ORDER_EXPR,
+                        { $ifNull: ["$pricing.total", 0] },
+                        0,
+                      ],
+                    },
+                  },
+                  netRevenue: {
+                    $sum: {
+                      $cond: [
                           { $in: ["$status", CANCELLED_ORDER_STATUSES] },
                           0,
                           {
@@ -295,7 +311,15 @@ export class AnalyticsService {
                   date: "$createdAt",
                 },
               },
-              revenue: { $sum: { $ifNull: ["$pricing.total", 0] } },
+              revenue: {
+                $sum: {
+                  $cond: [
+                    NON_REPLACEMENT_ORDER_EXPR,
+                    { $ifNull: ["$pricing.total", 0] },
+                    0,
+                  ],
+                },
+              },
               recognizedRevenue: {
                 $sum: {
                   $cond: [

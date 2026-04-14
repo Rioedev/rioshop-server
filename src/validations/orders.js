@@ -125,7 +125,7 @@ export const submitReturnRequestValidation = Joi.object({
     id: objectId.required(),
   }).required(),
   body: Joi.object({
-    type: Joi.string().valid("return", "exchange").required(),
+    type: Joi.string().valid("exchange").required(),
     reason: Joi.string().trim().min(5).max(500).required(),
     note: Joi.string().trim().allow("", null).max(1000).optional(),
     images: Joi.array().items(Joi.string().uri()).max(8).optional(),

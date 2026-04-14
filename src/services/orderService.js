@@ -40,7 +40,7 @@ const ONLINE_PENDING_PAYMENT_METHODS = (process.env.AUTO_CANCEL_PAYMENT_METHODS 
   .filter(Boolean);
 const RETURN_COMPLAINT_ACTIVE_STATUSES = new Set(["pending", "approved"]);
 const RETURN_REQUEST_ALLOWED_ORDER_STATUSES = new Set(["delivered", "completed"]);
-const RETURN_REQUEST_TYPES = new Set(["return", "exchange"]);
+const RETURN_REQUEST_TYPES = new Set(["exchange"]);
 const RETURN_REQUEST_STATUSES = new Set(["pending", "approved", "rejected", "completed"]);
 const RETURN_REQUEST_TRANSITION_MAP = {
   pending: new Set(["approved", "rejected"]),
@@ -603,7 +603,7 @@ export class OrderService {
       throw new AppError("User authentication required", 401);
     }
 
-    const requestType = (payload.type || "").toString().trim().toLowerCase();
+    const requestType = (payload.type || "exchange").toString().trim().toLowerCase();
     const reason = (payload.reason || "").toString().trim();
     const note = (payload.note || "").toString().trim();
     const images = Array.isArray(payload.images)
@@ -613,7 +613,7 @@ export class OrderService {
       : [];
 
     if (!RETURN_REQUEST_TYPES.has(requestType)) {
-      throw new AppError("Invalid return request type", 400);
+      throw new AppError("Only exchange request is supported", 400);
     }
 
     if (!reason) {
@@ -661,10 +661,7 @@ export class OrderService {
     order.timeline = order.timeline || [];
     order.timeline.push({
       status: "return_requested",
-      note:
-        requestType === "exchange"
-          ? "Customer submitted an exchange request"
-          : "Customer submitted a return request",
+      note: "Khách hàng đã gửi yêu cầu đổi hàng",
       at: now,
       by: "user",
     });
@@ -690,75 +687,141 @@ export class OrderService {
       throw new AppError("Invalid return request status", 400);
     }
 
-    const order = await Order.findById(orderId);
-    if (!order) {
-      throw new AppError("Order not found", 404);
+    const session = await Order.startSession();
+    let updatedOrderId = null;
+    let previousStatus = "";
+    let replacementOrderId = "";
+    let hasStatusChanged = true;
+
+    try {
+      await session.withTransaction(async () => {
+        const order = await Order.findById(orderId).session(session);
+        if (!order) {
+          throw new AppError("Order not found", 404);
+        }
+
+        if (!order.returnRequest?.type) {
+          throw new AppError("Order does not have return request", 400);
+        }
+
+        const currentStatusToken = (order.returnRequest.status || "").toString().trim().toLowerCase();
+        const currentStatus = RETURN_REQUEST_STATUSES.has(currentStatusToken) ? currentStatusToken : "pending";
+
+        previousStatus = currentStatus;
+        if (currentStatus === nextStatus) {
+          hasStatusChanged = false;
+          updatedOrderId = order._id;
+          return;
+        }
+
+        const allowedTransitions = RETURN_REQUEST_TRANSITION_MAP[currentStatus] || new Set();
+        if (!allowedTransitions.has(nextStatus)) {
+          throw new AppError(
+            `Cannot change return request status from ${currentStatus} to ${nextStatus}`,
+            400,
+          );
+        }
+
+        const requestType = (order.returnRequest.type || "exchange").toString().trim().toLowerCase();
+        if (nextStatus === "completed" && requestType === "return" && order.status !== "returned") {
+          throw new AppError(
+            "Return request can only be completed after order is marked returned",
+            400,
+          );
+        }
+
+        let replacementOrder = null;
+        if (nextStatus === "completed" && requestType === "exchange") {
+          const existingReplacementOrderId = order.returnRequest?.replacementOrderId?.toString?.() || "";
+          if (existingReplacementOrderId) {
+            replacementOrder = await Order.findById(existingReplacementOrderId)
+              .select("_id orderNumber")
+              .session(session);
+          }
+
+          if (!replacementOrder) {
+            replacementOrder = await this.createReplacementOrderForExchange(order, {
+              session,
+              note: normalizedNote,
+              createdBy: updatedBy,
+            });
+          }
+
+          if (replacementOrder?._id) {
+            replacementOrderId = replacementOrder._id.toString();
+            order.returnRequest.replacementOrderId = replacementOrder._id;
+            order.returnRequest.replacementOrderNumber = replacementOrder.orderNumber || "";
+          }
+        }
+
+        const statusTimelineNoteMap = {
+          approved: "Quản trị viên đã duyệt yêu cầu đổi hàng",
+          rejected: "Quản trị viên đã từ chối yêu cầu đổi hàng",
+          completed: "Yêu cầu đổi hàng đã hoàn tất",
+        };
+
+        const replacementOrderNumber = order.returnRequest?.replacementOrderNumber || "";
+        order.returnRequest.status = nextStatus;
+        if (nextStatus === "completed") {
+          order.returnRequest.completedAt = new Date();
+        }
+        if (normalizedNote) {
+          order.adminNote = normalizedNote;
+        }
+        order.timeline = order.timeline || [];
+
+        const baseTimelineNote =
+          statusTimelineNoteMap[nextStatus] || "Đã cập nhật trạng thái yêu cầu đổi hàng";
+        const timelineParts = [baseTimelineNote];
+        if (replacementOrderNumber) {
+          timelineParts.push(`Đơn đổi mới: ${replacementOrderNumber}`);
+        }
+        if (normalizedNote) {
+          timelineParts.push(`Ghi chú: ${normalizedNote}`);
+        }
+
+        order.timeline.push({
+          status: `return_request_${nextStatus}`,
+          note: timelineParts.join(". "),
+          at: new Date(),
+          by: updatedBy,
+        });
+        order.updatedAt = new Date();
+        await order.save({ session });
+        updatedOrderId = order._id;
+      });
+    } finally {
+      await session.endSession();
     }
 
-    if (!order.returnRequest?.type) {
-      throw new AppError("Order does not have return request", 400);
+    if (!updatedOrderId) {
+      throw new AppError("Failed to update return request status", 500);
     }
 
-    const currentStatusToken = (order.returnRequest.status || "").toString().trim().toLowerCase();
-    const currentStatus = RETURN_REQUEST_STATUSES.has(currentStatusToken) ? currentStatusToken : "pending";
-
-    if (currentStatus === nextStatus) {
-      return this.getOrderById(order._id.toString(), null);
+    const refreshedOrder = await this.getOrderById(updatedOrderId.toString(), null);
+    if (!hasStatusChanged) {
+      return refreshedOrder;
     }
 
-    const allowedTransitions = RETURN_REQUEST_TRANSITION_MAP[currentStatus] || new Set();
-    if (!allowedTransitions.has(nextStatus)) {
-      throw new AppError(
-        `Cannot change return request status from ${currentStatus} to ${nextStatus}`,
-        400,
-      );
+    if (replacementOrderId) {
+      const replacementOrder = await this.getOrderById(replacementOrderId, null);
+      if (replacementOrder) {
+        void emailService.sendOrderConfirmation(replacementOrder);
+        void notificationService.notifyOrderCreated(replacementOrder);
+        this.emitOrderRealtimeUpdate(replacementOrder, {
+          action: "created",
+          source: "create_exchange_replacement_order",
+        });
+        this.emitInventoryRealtimeUpdatesFromOrder(replacementOrder, {
+          action: "changed",
+          source: "create_exchange_replacement_order",
+        });
+      }
     }
 
-    const requestType = (order.returnRequest.type || "return").toString().trim().toLowerCase();
-    if (nextStatus === "completed" && requestType === "return" && order.status !== "returned") {
-      throw new AppError(
-        "Return request can only be completed after order is marked returned",
-        400,
-      );
-    }
-
-    const statusTimelineNoteMap = {
-      approved:
-        requestType === "exchange"
-          ? "Admin approved exchange request"
-          : "Admin approved return request",
-      rejected:
-        requestType === "exchange"
-          ? "Admin rejected exchange request"
-          : "Admin rejected return request",
-      completed:
-        requestType === "exchange"
-          ? "Exchange request completed"
-          : "Return request completed",
-    };
-
-    order.returnRequest.status = nextStatus;
-    if (normalizedNote) {
-      order.adminNote = normalizedNote;
-    }
-    order.timeline = order.timeline || [];
-
-    const baseTimelineNote = statusTimelineNoteMap[nextStatus] || "Return request status updated";
-    const timelineNote = normalizedNote ? `${baseTimelineNote}. Note: ${normalizedNote}` : baseTimelineNote;
-
-    order.timeline.push({
-      status: `return_request_${nextStatus}`,
-      note: timelineNote,
-      at: new Date(),
-      by: updatedBy,
-    });
-    order.updatedAt = new Date();
-    await order.save();
-
-    const refreshedOrder = await this.getOrderById(order._id.toString(), null);
     void notificationService.notifyReturnRequestStatusChanged(
       refreshedOrder,
-      currentStatus,
+      previousStatus,
       nextStatus,
       normalizedNote,
     );
@@ -767,6 +830,91 @@ export class OrderService {
       source: "update_return_request_status",
     });
     return refreshedOrder;
+  }
+
+  async createReplacementOrderForExchange(order, { session, note = "", createdBy = "admin" } = {}) {
+    const sourceItems = Array.isArray(order?.items) ? order.items : [];
+    if (sourceItems.length === 0) {
+      throw new AppError("Order must contain at least one item", 400);
+    }
+
+    const normalizedItems = sourceItems.map((item) => ({
+      productId: item.productId?.toString?.() || item.productId,
+      variantSku: (item.variantSku || "").toString().trim(),
+      productName: (item.productName || "").toString().trim() || "Sản phẩm đổi",
+      variantLabel: (item.variantLabel || "").toString().trim() || "Mặc định",
+      image: (item.image || "").toString().trim(),
+      unitPrice: 0,
+      quantity: Number(item.quantity || 0),
+      totalPrice: 0,
+      returnedQty: 0,
+    }));
+
+    const hasInvalidItem = normalizedItems.some((item) => !item.productId || item.quantity <= 0);
+    if (hasInvalidItem) {
+      throw new AppError("Invalid order item payload", 400);
+    }
+
+    const replacementOrderNumber = await this.generateOrderNumber(session);
+    const now = new Date();
+    const replacementNoteParts = [
+      `Đơn đổi hàng tạo tự động từ đơn ${order.orderNumber || ""}`.trim(),
+    ];
+    if (note) {
+      replacementNoteParts.push(`Ghi chú xử lý: ${note}`);
+    }
+
+    const replacementOrder = new Order({
+      orderNumber: replacementOrderNumber,
+      userId: order.userId || null,
+      customerSnapshot: {
+        name: order.customerSnapshot?.name || "Khách hàng",
+        email: order.customerSnapshot?.email || "",
+        phone: order.customerSnapshot?.phone || "",
+      },
+      items: normalizedItems,
+      shippingAddress: order.shippingAddress || {},
+      pricing: {
+        subtotal: 0,
+        discount: 0,
+        shippingFee: 0,
+        total: 0,
+        currency: order.pricing?.currency || "VND",
+      },
+      couponCode: null,
+      couponDiscount: 0,
+      loyaltyPointsUsed: 0,
+      loyaltyPointsEarned: 0,
+      loyaltyPointsAwardedAt: null,
+      paymentMethod: order.paymentMethod || "cod",
+      paymentStatus: "paid",
+      shippingMethod: order.shippingMethod || "standard",
+      shippingCarrier: order.shippingCarrier || this.resolveShippingCarrier(order),
+      shippingFee: 0,
+      status: "pending",
+      note: replacementNoteParts.join(". "),
+      adminNote: `Tự động tạo do hoàn tất đổi hàng từ đơn ${order.orderNumber || ""}`.trim(),
+      exchangeMeta: {
+        isReplacement: true,
+        parentOrderId: order._id,
+        parentOrderNumber: order.orderNumber || "",
+      },
+      source: "admin",
+      timeline: [
+        {
+          status: "pending",
+          note: `Đơn đổi hàng được tạo tự động từ yêu cầu đổi hàng của đơn ${order.orderNumber || ""}`,
+          at: now,
+          by: createdBy,
+        },
+      ],
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await this.applyInventoryForNewOrder(replacementOrder.items || [], replacementOrder.status, session);
+    await replacementOrder.save({ session });
+    return replacementOrder;
   }
 
   async attachPayment(orderId, paymentId, paymentStatus = "paid") {
@@ -1638,3 +1786,4 @@ export class OrderService {
 }
 
 export default new OrderService();
+

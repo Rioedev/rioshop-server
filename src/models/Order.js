@@ -35,7 +35,7 @@ const returnRequestSchema = new mongoose.Schema(
     type: {
       type: String,
       enum: ["return", "exchange"],
-      default: "return",
+      default: "exchange",
     },
     reason: String,
     note: String,
@@ -45,6 +45,12 @@ const returnRequestSchema = new mongoose.Schema(
       enum: ["pending", "approved", "rejected", "completed"],
     },
     requestedAt: Date,
+    completedAt: Date,
+    replacementOrderId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Order",
+    },
+    replacementOrderNumber: String,
   },
   { _id: false },
 );
@@ -114,6 +120,11 @@ const orderSchema = new mongoose.Schema({
   note: String,
   adminNote: String,
   returnRequest: returnRequestSchema,
+  exchangeMeta: {
+    isReplacement: { type: Boolean, default: false },
+    parentOrderId: { type: mongoose.Schema.Types.ObjectId, ref: "Order" },
+    parentOrderNumber: String,
+  },
   source: {
     type: String,
     enum: ["web", "mobile", "pos", "admin"],
