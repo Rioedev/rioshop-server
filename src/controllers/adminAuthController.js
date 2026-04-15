@@ -1,18 +1,19 @@
 import { asyncHandler, sendSuccess, sendError } from "../utils/helpers.js";
 import authService from "../services/authService.js";
 import Admin from "../models/Admin.js";
+import { ADMIN_ROLE, ADMIN_STAFF_ROLES } from "../constants/index.js";
 
-const STAFF_ROLES = ["warehouse", "cs", "marketer", "sales"];
+const STAFF_ROLES = ADMIN_STAFF_ROLES;
 const NOT_DELETED_FILTER = {
   $or: [{ isDeleted: false }, { isDeleted: { $exists: false } }],
 };
 
 const canAssignRole = (actorRole, targetRole) => {
-  if (actorRole === "superadmin") {
+  if (actorRole === ADMIN_ROLE.SUPERADMIN) {
     return true;
   }
 
-  if (actorRole === "manager") {
+  if (actorRole === ADMIN_ROLE.MANAGER) {
     return STAFF_ROLES.includes(targetRole);
   }
 
@@ -20,11 +21,11 @@ const canAssignRole = (actorRole, targetRole) => {
 };
 
 const canManageTargetAdmin = (actorRole, targetAdminRole) => {
-  if (actorRole === "superadmin") {
+  if (actorRole === ADMIN_ROLE.SUPERADMIN) {
     return true;
   }
 
-  if (actorRole === "manager") {
+  if (actorRole === ADMIN_ROLE.MANAGER) {
     return STAFF_ROLES.includes(targetAdminRole);
   }
 
@@ -108,7 +109,7 @@ export const changePassword = asyncHandler(async (req, res) => {
  */
 export const getAllAdmins = asyncHandler(async (req, res) => {
   const actorRole = req.user.role;
-  const query = actorRole === "superadmin"
+  const query = actorRole === ADMIN_ROLE.SUPERADMIN
     ? { ...NOT_DELETED_FILTER }
     : {
         role: { $in: STAFF_ROLES },

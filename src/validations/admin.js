@@ -1,4 +1,5 @@
 import Joi from "joi";
+import { ADMIN_ALL_ROLES } from "../constants/index.js";
 
 /**
  * Validation schema for admin login
@@ -55,11 +56,10 @@ export const createAdminValidation = Joi.object({
       "any.required": "Full name is required",
     }),
     role: Joi.string()
-      .valid("superadmin", "manager", "warehouse", "cs", "marketer", "sales")
+      .valid(...ADMIN_ALL_ROLES)
       .required()
       .messages({
-        "any.only":
-          "Role must be one of: superadmin, manager, warehouse, cs, marketer, sales",
+        "any.only": "Role must be one of: superadmin, manager, warehouse, sales",
         "any.required": "Role is required",
       }),
     permissions: Joi.array().items(Joi.string()).optional(),
@@ -73,11 +73,10 @@ export const updateAdminValidation = Joi.object({
   body: Joi.object({
     fullName: Joi.string().min(2).max(100).optional(),
     role: Joi.string()
-      .valid("superadmin", "manager", "warehouse", "cs", "marketer", "sales")
+      .valid(...ADMIN_ALL_ROLES)
       .optional()
       .messages({
-        "any.only":
-          "Role must be one of: superadmin, manager, warehouse, cs, marketer, sales",
+        "any.only": "Role must be one of: superadmin, manager, warehouse, sales",
       }),
     permissions: Joi.array().items(Joi.string()).optional(),
     isActive: Joi.boolean().optional(),

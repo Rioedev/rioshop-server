@@ -61,10 +61,26 @@ export const ADMIN_ROLE = {
   SUPERADMIN: "superadmin",
   MANAGER: "manager",
   WAREHOUSE: "warehouse",
-  CS: "cs",
-  MARKETER: "marketer",
   SALES: "sales",
 };
+
+export const ADMIN_STAFF_ROLES = [
+  ADMIN_ROLE.WAREHOUSE,
+  ADMIN_ROLE.SALES,
+];
+
+export const ADMIN_ALL_ROLES = [
+  ADMIN_ROLE.SUPERADMIN,
+  ADMIN_ROLE.MANAGER,
+  ...ADMIN_STAFF_ROLES,
+];
+
+export const LEGACY_ADMIN_ROLE_MAP = {
+  cs: ADMIN_ROLE.SALES,
+  marketer: ADMIN_ROLE.SALES,
+};
+
+export const normalizeAdminRole = (role) => LEGACY_ADMIN_ROLE_MAP[role] || role;
 
 // Sizes
 export const PRODUCT_SIZES = ["XS", "S", "M", "L", "XL", "2XL", "3XL"];

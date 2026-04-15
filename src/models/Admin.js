@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { ADMIN_ALL_ROLES } from "../constants/index.js";
 
 const adminSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true, lowercase: true },
@@ -7,7 +8,7 @@ const adminSchema = new mongoose.Schema({
   avatar: String,
   role: {
     type: String,
-    enum: ["superadmin", "manager", "warehouse", "cs", "marketer", "sales"],
+    enum: ADMIN_ALL_ROLES,
     required: true,
   },
   permissions: [String],

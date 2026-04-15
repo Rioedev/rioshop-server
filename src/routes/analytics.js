@@ -18,7 +18,7 @@ const router = express.Router();
 router.get(
   "/events",
   authenticateToken,
-  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer", "sales"),
+  authorizeRole("superadmin", "manager", "warehouse", "sales"),
   validateRequest(analyticsEventsValidation),
   getAnalyticsEvents,
 );
@@ -30,7 +30,7 @@ router.post("/track", validateRequest(analyticsTrackValidation), trackAnalyticsE
 router.get(
   "/dashboard",
   authenticateToken,
-  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer", "sales"),
+  authorizeRole("superadmin", "manager", "warehouse", "sales"),
   validateRequest(analyticsDashboardValidation),
   getAnalyticsDashboard,
 );

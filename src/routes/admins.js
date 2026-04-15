@@ -45,7 +45,7 @@ router.post("/login", validateRequest(adminLoginValidation), adminLogin);
 router.get(
   "/me",
   authenticateToken,
-  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer", "sales"),
+  authorizeRole("superadmin", "manager", "warehouse", "sales"),
   getCurrentAdmin,
 );
 
@@ -53,7 +53,7 @@ router.get(
 router.post(
   "/logout",
   authenticateToken,
-  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer", "sales"),
+  authorizeRole("superadmin", "manager", "warehouse", "sales"),
   adminLogout,
 );
 
@@ -61,7 +61,7 @@ router.post(
 router.post(
   "/change-password",
   authenticateToken,
-  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer", "sales"),
+  authorizeRole("superadmin", "manager", "warehouse", "sales"),
   validateRequest(adminChangePasswordValidation),
   changePassword,
 );
@@ -70,7 +70,7 @@ router.post(
 router.get(
   "/users",
   authenticateToken,
-  authorizeRole("superadmin", "manager", "cs"),
+  authorizeRole("superadmin", "manager", "sales"),
   validateRequest(adminCustomerListValidation),
   getAllCustomers,
 );
@@ -78,7 +78,7 @@ router.get(
 router.get(
   "/users/:id",
   authenticateToken,
-  authorizeRole("superadmin", "manager", "cs"),
+  authorizeRole("superadmin", "manager", "sales"),
   validateRequest(customerIdValidation),
   getCustomerById,
 );
@@ -94,7 +94,7 @@ router.post(
 router.put(
   "/users/:id",
   authenticateToken,
-  authorizeRole("superadmin", "manager", "cs"),
+  authorizeRole("superadmin", "manager", "sales"),
   validateRequest(updateCustomerByAdminValidation),
   updateCustomer,
 );
@@ -102,7 +102,7 @@ router.put(
 router.patch(
   "/users/:id/status",
   authenticateToken,
-  authorizeRole("superadmin", "manager", "cs"),
+  authorizeRole("superadmin", "manager", "sales"),
   validateRequest(updateCustomerStatusByAdminValidation),
   updateCustomerStatus,
 );

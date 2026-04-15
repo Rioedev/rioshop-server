@@ -22,7 +22,7 @@ const router = express.Router();
 router.get(
   "/",
   authenticateToken,
-  authorizeRole("superadmin", "manager", "warehouse", "cs", "marketer", "sales"),
+  authorizeRole("superadmin", "manager", "warehouse", "sales"),
   validateRequest(getReviewsValidation),
   getReviews,
 );

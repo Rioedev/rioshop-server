@@ -13,7 +13,7 @@
     "email:test": "node scripts/testEmail.js",
     "ghn:resolve": "node scripts/resolveGhnAddress.js",
     "fix:user-indexes": "node scripts/fixUserReferralIndex.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test --experimental-test-isolation=none ../test/server/*.test.js"
   },
   "keywords": [
     "ecommerce",

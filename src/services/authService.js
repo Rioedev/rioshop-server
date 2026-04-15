@@ -7,6 +7,7 @@ import { generateToken } from "../middlewares/auth.js";
 import { redisClient } from "../config/redis.js";
 import { AppError } from "../utils/helpers.js";
 import emailService from "./emailService.js";
+import { normalizeAdminRole } from "../constants/index.js";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -203,6 +204,11 @@ export class AuthService {
         throw new AppError("Email or password incorrect", 401);
       }
 
+      const normalizedRole = normalizeAdminRole(admin.role);
+      if (normalizedRole !== admin.role) {
+        admin.role = normalizedRole;
+      }
+
       // Update last login
       admin.lastLoginAt = new Date();
       admin.loginHistory = admin.loginHistory || [];
@@ -222,7 +228,7 @@ export class AuthService {
       // Generate token
       const token = generateToken({
         adminId: admin._id.toString(),
-        role: admin.role,
+        role: normalizedRole,
         permissions: admin.permissions,
       });
 
@@ -231,7 +237,7 @@ export class AuthService {
           id: admin._id,
           email: admin.email,
           fullName: admin.fullName,
-          role: admin.role,
+          role: normalizedRole,
         },
         token,
       };
@@ -330,6 +336,9 @@ export class AuthService {
       // Hash new password
       const salt = await bcrypt.genSalt(10);
       user.passwordHash = await bcrypt.hash(newPassword, salt);
+      if (isAdmin) {
+        user.role = normalizeAdminRole(user.role);
+      }
       await user.save();
 
       return { message: "Password changed successfully" };

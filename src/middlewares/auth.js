@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import { redisClient } from "../config/redis.js";
+import { normalizeAdminRole } from "../constants/index.js";
 
 dotenv.config();
 
@@ -17,6 +18,9 @@ export const authenticateToken = async (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    if (decoded?.adminId && decoded?.role) {
+      decoded.role = normalizeAdminRole(decoded.role);
+    }
 
     // Optional blacklist check (gracefully skipped when Redis is unavailable)
     const principalId = decoded.userId || decoded.adminId;
@@ -55,7 +59,11 @@ export const authorizeRole = (...roles) => {
       });
     }
 
-    if (!roles.includes(req.user.role)) {
+    const resolvedRole = req.user?.adminId
+      ? normalizeAdminRole(req.user.role)
+      : req.user.role;
+
+    if (!roles.includes(resolvedRole)) {
       return res.status(403).json({
         success: false,
         message: "Quyền truy cập không đủ",
