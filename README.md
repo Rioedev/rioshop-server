@@ -1,250 +1,226 @@
-# Rioshop - E-Commerce Backend Server
+# Rioshop Server (Backend API)
 
-A modern, scalable Node.js backend API for an e-commerce platform with comprehensive features for product management, order processing, payments, and real-time updates.
+Backend API cho dự án Rioshop, xây dựng với Express + MongoDB + Redis + Socket.IO.
 
-## 🚀 Features
+## 1. Công nghệ chính
 
-- **User Management**: User registration, authentication, and profile management
-- **Product Management**: Product catalog, categories, brands, and inventory tracking
-- **Shopping Cart**: Add/remove products, manage cart items
-- **Orders & Payments**: Order creation, payment processing via integrated payment gateway
-- **Wishlist**: Save favorite products for later
-- **Reviews & Ratings**: Customer product reviews and ratings
-- **Flash Sales**: Time-limited promotional sales
-- **Analytics**: Track user behavior and sales analytics
-- **Coupons & Discounts**: Promotional code management
-- **Shipping**: Shipment tracking and management
-- **Notifications**: Real-time notifications for users
-- **Real-time Updates**: WebSocket support for live updates
-- **Rate Limiting**: API rate limiting for security
-- **Admin Panel**: Admin controls and management
+- Node.js (khuyến nghị Node 18+)
+- Express 5
+- MongoDB + Mongoose
+- Redis (cache/rate-limit hỗ trợ)
+- Socket.IO (realtime)
+- Joi (validation)
 
-## 🛠️ Technology Stack
+## 2. Chức năng hiện có
 
-- **Runtime**: Node.js
-- **Framework**: Express.js
-- **Database**: MongoDB
-- **Cache**: Redis
-- **File Storage**: Cloudinary
-- **Real-time**: Socket.io
-- **Authentication**: JWT (JSON Web Tokens)
-- **Payment Integration**: Payment gateway (configurable)
+- Xác thực user/admin bằng JWT
+- Quản lý sản phẩm, danh mục, bộ sưu tập, tồn kho
+- Giỏ hàng, đơn hàng, thanh toán (MoMo)
+- Theo dõi vận chuyển GHN
+- Flash sale, coupon, blog, review, wishlist
+- Notification realtime
+- Analytics events
+- Tự động hóa vòng đời đơn hàng/vận đơn/notification
 
-## 📋 Prerequisites
+## 3. Cấu trúc thư mục
 
-- Node.js (v14 or higher)
-- MongoDB instance
-- Redis instance
-- Cloudinary account (for image storage)
-- Payment gateway API keys
+```text
+server/
+├── src/
+│   ├── config/         # Kết nối DB, Redis, Cloudinary
+│   ├── constants/      # Hằng số hệ thống
+│   ├── controllers/    # Xử lý request/response
+│   ├── middlewares/    # Auth, validate, rate limit, error handler
+│   ├── models/         # Mongoose models
+│   ├── routes/         # API routes
+│   ├── services/       # Business logic
+│   ├── sockets/        # Socket gateway + handlers
+│   ├── utils/          # Helper/response utils
+│   └── validations/    # Joi schemas
+├── scripts/            # Script seed/test/email/ghn
+├── server.js           # Entry point
+└── package.json
+```
 
-## 🔧 Installation
+## 4. Cài đặt
 
-1. **Clone the repository**
+```bash
+cd server
+npm install
+```
 
-   ```bash
-   git clone <repository-url>
-   cd Rioshop/server
-   ```
+Tạo file `.env` (có thể copy từ cấu hình hiện tại của team hoặc tự tạo mới theo mẫu bên dưới).
 
-2. **Install dependencies**
+## 5. Biến môi trường
 
-   ```bash
-   npm install
-   ```
+### 5.1 Nhóm bắt buộc tối thiểu
 
-3. **Configure environment variables**
-   Create a `.env` file in the `server` directory with the following variables:
+```env
+PORT=5000
+NODE_ENV=development
 
-   ```
-   PORT=5000
-   NODE_ENV=development
+MONGO_URI=mongodb://localhost:27017/rioshop
+REDIS_URL=redis://localhost:6379
 
-   # Database (required)
-   MONGO_URI=mongodb://localhost:27017/rioshop
-   # Legacy alias still supported:
-   # MONGODB_URI=mongodb://localhost:27017/rioshop
-   # Railway MongoDB template usually exposes:
-   # MONGO_URL=mongodb://...
+JWT_SECRET=your_jwt_secret
+JWT_EXPIRE=7d
 
-   # Redis
-   REDIS_URL=redis://localhost:6379
+CORS_ORIGIN=http://localhost:5173
+```
 
-   # Cloudinary
-   CLOUDINARY_CLOUD_NAME=your_cloudinary_name
-   CLOUDINARY_API_KEY=your_api_key
-   CLOUDINARY_API_SECRET=your_api_secret
+### 5.2 Thanh toán MoMo
 
-   # JWT
-   JWT_SECRET=your_jwt_secret_key
-   JWT_EXPIRE=7d
+```env
+MOMO_PARTNER_CODE=your_partner_code
+MOMO_ACCESS_KEY=your_access_key
+MOMO_SECRET_KEY=your_secret_key
+MOMO_REQUEST_TYPE=payWithMethod
+MOMO_PARTNER_NAME=Rioshop
+MOMO_STORE_ID=RioshopStore
 
-   # Email Service
-   SMTP_HOST=your_smtp_host
-   SMTP_PORT=587
-   SMTP_USER=your_email
-   SMTP_PASS=your_password
+PUBLIC_API_URL=http://localhost:5000
+STOREFRONT_URL=http://localhost:5173
+```
 
-   # Payment (MoMo)
-   MOMO_PARTNER_CODE=your_partner_code
-   MOMO_ACCESS_KEY=your_access_key
-   MOMO_SECRET_KEY=your_secret_key
+### 5.3 GHN (vận chuyển)
 
-   # Notification cleanup automation
-   AUTO_NOTIFICATION_CLEANUP_ENABLED=true
-   AUTO_NOTIFICATION_CLEANUP_INTERVAL_MS=3600000
-   NOTIFICATION_UNREAD_RETENTION_DAYS=15
-   ```
+```env
+GHN_API_KEY=your_ghn_token
+GHN_SHOP_ID=your_ghn_shop_id
+GHN_API_BASE_URL=https://dev-online-gateway.ghn.vn/shiip/public-api
+GHN_MASTER_DATA_BASE_URL=https://dev-online-gateway.ghn.vn/shiip/public-api/master-data
+GHN_TRACKING_BASE_URL=https://donhang.ghn.vn/?order_code=
+GHN_TIMEOUT_MS=15000
 
-## 🚀 Running the Server
+GHN_FROM_NAME=RioShop
+GHN_FROM_PHONE=0123456789
+GHN_FROM_ADDRESS=Your warehouse address
+GHN_FROM_DISTRICT_ID=0
+GHN_FROM_WARD_CODE=
+```
 
-### Development Mode
+### 5.4 Email
+
+```env
+EMAIL_ENABLED=true
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your_user
+SMTP_PASS=your_pass
+SMTP_FROM_NAME=RioShop
+SMTP_FROM_EMAIL=no-reply@example.com
+SMTP_TEST_TO=you@example.com
+EMAIL_LOG_VERBOSE=true
+```
+
+### 5.5 Cloudinary (upload media)
+
+```env
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
+```
+
+### 5.6 Job tự động (automation)
+
+```env
+# Auto xử lý vòng đời order
+AUTO_ORDER_JOB_ENABLED=true
+AUTO_ORDER_JOB_INTERVAL_MS=300000
+AUTO_CANCEL_PENDING_PAYMENT_MINUTES=30
+AUTO_COMPLETE_DELIVERED_DAYS=3
+RETURN_REQUEST_WINDOW_DAYS=3
+AUTO_CANCEL_PAYMENT_METHODS=momo,vnpay,zalopay,card
+
+# Auto đồng bộ GHN
+AUTO_GHN_SYNC_JOB_ENABLED=true
+AUTO_GHN_SYNC_INTERVAL_MS=60000
+AUTO_GHN_SYNC_BATCH_LIMIT=20
+
+# Auto dọn notification
+AUTO_NOTIFICATION_CLEANUP_ENABLED=true
+AUTO_NOTIFICATION_CLEANUP_INTERVAL_MS=3600000
+NOTIFICATION_UNREAD_RETENTION_DAYS=15
+```
+
+### 5.7 Tinh chỉnh khác
+
+```env
+RATE_LIMIT_WINDOW_MS=900000
+RATE_LIMIT_MAX=300
+FRONTEND_URL=http://localhost:5173
+```
+
+## 6. Chạy project
+
+### Chế độ dev
 
 ```bash
 npm run dev
 ```
 
-### Production Mode
+### Chế độ production local
 
 ```bash
 npm start
 ```
 
-The server will start on the port specified in your `.env` file (default: 5000).
+Server mặc định chạy tại `http://localhost:5000`.
 
-## 📁 Project Structure
+## 7. Scripts hữu ích
 
-```
-server/
-├── src/
-│   ├── config/           # Configuration files (database, Redis, Cloudinary)
-│   ├── constants/        # Application constants
-│   ├── controllers/      # Request handlers
-│   ├── middlewares/      # Express middlewares (auth, validation, error handling)
-│   ├── models/           # Database schemas
-│   ├── routes/           # API routes
-│   ├── services/         # Business logic services
-│   ├── sockets/          # WebSocket handlers
-│   ├── utils/            # Utility functions
-│   └── validations/      # Request validation schemas
-├── server.js             # Application entry point
-└── package.json          # Project dependencies
-```
+- `npm run dev`: chạy server với nodemon
+- `npm start`: chạy server bằng node
+- `npm test`: chạy test backend tại `../test/server/*.test.js`
+- `npm run seed` hoặc `npm run seed:storefront`: seed dữ liệu storefront
+- `npm run seed:fashion-demo`: seed dữ liệu demo thời trang
+- `npm run email:test`: gửi email test
+- `npm run ghn:resolve`: hỗ trợ resolve địa chỉ GHN
 
-## 🔌 API Endpoints (Overview)
+Lưu ý: `package.json` đang có khai báo script `fix:user-indexes`, nhưng hiện tại chưa có file `scripts/fixUserReferralIndex.js`.
 
-### Authentication
+## 8. API chính
 
-- `POST /api/auth/register` - User registration
-- `POST /api/auth/login` - User login
-- `POST /api/auth/logout` - User logout
+Các route đang mount tại `server.js`:
 
-### Products
+- `/api/auth`
+- `/api/users`
+- `/api/products`
+- `/api/categories`
+- `/api/collections`
+- `/api/carts`
+- `/api/orders`
+- `/api/payments`
+- `/api/shipments`
+- `/api/reviews`
+- `/api/wishlists`
+- `/api/coupons`
+- `/api/notifications`
+- `/api/analytics`
+- `/api/inventories`
+- `/api/admins`
+- `/api/flash-sales`
+- `/api/brand-configs`
+- `/api/blogs`
 
-- `GET /api/products` - Get all products
-- `GET /api/products/:id` - Get product details
-- `POST /api/products` - Create product (Admin)
-- `PUT /api/products/:id` - Update product (Admin)
-- `DELETE /api/products/:id` - Delete product (Admin)
+Health check:
 
-### Orders
+- `GET /health`
 
-- `GET /api/orders` - Get user orders
-- `POST /api/orders` - Create new order
-- `GET /api/orders/:id` - Get order details
-- `PUT /api/orders/:id` - Update order status (Admin)
+## 9. Realtime (Socket.IO)
 
-### Cart
+Server phát realtime cho các kênh chính:
 
-- `GET /api/carts` - Get user cart
-- `POST /api/carts` - Add to cart
-- `PUT /api/carts/:id` - Update cart item
-- `DELETE /api/carts/:id` - Remove from cart
+- Notification user (`notification`)
+- Cập nhật đơn hàng (`order-updated`)
+- Cập nhật tồn kho (`inventory-updated`)
+- Cập nhật flash sale (`flash-sale-updated`)
 
-### Payments
+## 10. Ghi chú vận hành
 
-- `POST /api/payments` - Process payment
-- `GET /api/payments/:id` - Get payment details
-
-### Users
-
-- `GET /api/users/profile` - Get user profile
-- `PUT /api/users/profile` - Update user profile
-- `GET /api/users/:id` - Get user details (Admin)
-
-### Additional Endpoints
-
-- Categories, Coupons, Flash Sales, Reviews, Wishlists, Notifications, Analytics, Shipments
-
-_For detailed API documentation, refer to the route files in `src/routes/`_
-
-## 🔐 Security Features
-
-- JWT-based authentication
-- Rate limiting on API endpoints
-- Request validation and sanitization
-- Error handling middleware
-- CORS configuration
-- Password hashing
-
-## 🔄 Real-time Features
-
-WebSocket events for:
-
-- Order status updates
-- Notifications
-- Inventory changes
-- Real-time chat (if applicable)
-
-## 📊 Database Models
-
-The application includes the following MongoDB models:
-
-- User
-- Product
-- Order
-- Cart
-- Category
-- Payment
-- Coupon
-- Review
-- Wishlist
-- Admin
-- AnalyticsEvent
-- BrandConfig
-- FlashSale
-- Inventory
-- Notification
-- Shipment
-
-## 🧪 Testing
-
-_(Add testing information if applicable)_
-
-```bash
-npm test
-```
-
-## 🤝 Contributing
-
-1. Create a feature branch: `git checkout -b feature/your-feature`
-2. Commit your changes: `git commit -am 'Add new feature'`
-3. Push to the branch: `git push origin feature/your-feature`
-4. Submit a pull request
-
-## 📝 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 📧 Support
-
-For support and questions, please contact: [your-email@example.com]
-
-## 🔗 Related Repositories
-
-- Frontend Client: [Frontend Repository URL]
-- Mobile App: [Mobile Repository URL]
-
----
-
-**Last Updated**: March 2026
+- Không commit file `.env` thật chứa secret lên repository công khai.
+- Khi bật Redis/GHN/Email ở môi trường production, cần dùng thông tin thật và giới hạn quyền API key.
+- Notification cleanup đang chạy tự động với rule hiện tại:
+  - đã đọc: xóa ở lần chạy job kế tiếp
+  - chưa đọc: quá `NOTIFICATION_UNREAD_RETENTION_DAYS` thì xóa
