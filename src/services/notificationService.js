@@ -74,6 +74,7 @@ const RETURN_REQUEST_STATUS_LABELS = {
   rejected: "đã bị từ chối",
   completed: "đã hoàn tất",
 };
+const DEFAULT_UNREAD_RETENTION_DAYS = 15;
 
 const buildAdminOrderLink = (orderId = "") => {
   const normalizedOrderId = orderId?.toString?.().trim?.() || "";
@@ -219,6 +220,32 @@ export class NotificationService {
     } catch (error) {
       throw error;
     }
+  }
+
+  async cleanupExpiredNotifications(options = {}) {
+    const unreadRetentionDays = Number.isFinite(Number(options.unreadRetentionDays))
+      ? Math.max(1, Number(options.unreadRetentionDays))
+      : DEFAULT_UNREAD_RETENTION_DAYS;
+    const now = options.now instanceof Date ? options.now : new Date();
+    const unreadCutoffDate = new Date(
+      now.getTime() - unreadRetentionDays * 24 * 60 * 60 * 1000,
+    );
+
+    const query = {
+      $or: [
+        { isRead: true },
+        { isRead: false, createdAt: { $lt: unreadCutoffDate } },
+      ],
+    };
+
+    const result = await Notification.deleteMany(query);
+
+    return {
+      deletedCount: result.deletedCount || 0,
+      unreadRetentionDays,
+      unreadCutoffDate: unreadCutoffDate.toISOString(),
+      finishedAt: now.toISOString(),
+    };
   }
 
   async getActiveAdminIds() {

@@ -23,6 +23,7 @@ const notificationSchema = new mongoose.Schema({
 
 // TTL index - 90 days retention
 notificationSchema.index({ createdAt: 1 }, { expireAfterSeconds: 7776000 });
+notificationSchema.index({ isRead: 1, createdAt: 1 });
 notificationSchema.index({ userId: 1, isRead: 1, createdAt: -1 });
 
 export default mongoose.model("Notification", notificationSchema);

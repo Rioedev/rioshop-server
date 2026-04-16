@@ -89,6 +89,11 @@ A modern, scalable Node.js backend API for an e-commerce platform with comprehen
    MOMO_PARTNER_CODE=your_partner_code
    MOMO_ACCESS_KEY=your_access_key
    MOMO_SECRET_KEY=your_secret_key
+
+   # Notification cleanup automation
+   AUTO_NOTIFICATION_CLEANUP_ENABLED=true
+   AUTO_NOTIFICATION_CLEANUP_INTERVAL_MS=3600000
+   NOTIFICATION_UNREAD_RETENTION_DAYS=15
    ```
 
 ## 🚀 Running the Server
