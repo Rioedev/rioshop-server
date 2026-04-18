@@ -3,6 +3,8 @@ import multer from "multer";
 import { validateRequest } from "../middlewares/validation.js";
 import {
   getAllProducts,
+  exportProductsCsv,
+  importProductsCsv,
   getProductBySlug,
   searchProducts,
   createProduct,
@@ -28,12 +30,24 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024,
   },
 });
+const uploadCsv = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+  },
+});
 
 // Get all products
 router.get("/", validateRequest(paginationValidation), getAllProducts);
 
 // Search products
 router.get("/search", validateRequest(searchProductsValidation), searchProducts);
+
+// Export products to CSV
+router.get("/export-csv", validateRequest(paginationValidation), exportProductsCsv);
+
+// Import products from CSV
+router.post("/import-csv", uploadCsv.single("file"), importProductsCsv);
 
 // Create product
 router.post("/", validateRequest(createProductValidation), createProduct);
