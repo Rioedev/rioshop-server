@@ -4,6 +4,7 @@ import { validateRequest } from "../middlewares/validation.js";
 import {
   getAllProducts,
   exportProductsCsv,
+  downloadProductsImportTemplateCsv,
   importProductsCsv,
   getProductBySlug,
   searchProducts,
@@ -45,6 +46,9 @@ router.get("/search", validateRequest(searchProductsValidation), searchProducts)
 
 // Export products to CSV
 router.get("/export-csv", validateRequest(paginationValidation), exportProductsCsv);
+
+// Download products CSV import template
+router.get("/import-template-csv", downloadProductsImportTemplateCsv);
 
 // Import products from CSV
 router.post("/import-csv", uploadCsv.single("file"), importProductsCsv);

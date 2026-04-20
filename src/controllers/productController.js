@@ -447,6 +447,89 @@ export const exportProductsCsv = asyncHandler(async (req, res) => {
   res.status(200).send(`${CSV_BOM}${csvContent}`);
 });
 
+export const downloadProductsImportTemplateCsv = asyncHandler(async (_req, res) => {
+  const templateRows = [
+    {
+      productSku: "AO-THUN-NAM-001",
+      productName: "Ao thun nam basic cotton",
+      brand: "Rioshop",
+      slug: "ao-thun-nam-basic-cotton",
+      status: "active",
+      categoryId: "CATEGORY_ID_OR_CATEGORY_SLUG",
+      categoryName: "",
+      categorySlug: "",
+      collectionIds: "COLLECTION_ID_OR_COLLECTION_SLUG",
+      collectionNames: "",
+      collectionSlugs: "",
+      basePrice: 299000,
+      salePrice: 199000,
+      gender: "men",
+      ageGroup: "adult",
+      material: "Cotton|Spandex",
+      care: "Giat lanh|Khong say",
+      shortDescription: "Ao thun nam mac hang ngay",
+      description: "Mo ta chi tiet san pham",
+      seoTitle: "Ao thun nam basic",
+      seoDescription: "Ao thun nam basic cotton dep",
+      seoKeywords: "ao thun nam|basic cotton|rioshop",
+      variantId: "VAR-1",
+      variantSku: "AO-THUN-NAM-001-WHITE-M",
+      variantColorName: "Trang",
+      variantColorHex: "#FFFFFF",
+      variantSize: "M",
+      variantSizeLabel: "M",
+      variantStock: 20,
+      variantAdditionalPrice: 0,
+      variantBarcode: "",
+      variantImages: "https://example.com/image-1.jpg|https://example.com/image-2.jpg",
+      variantIsActive: "true",
+    },
+    {
+      productSku: "AO-THUN-NAM-001",
+      productName: "Ao thun nam basic cotton",
+      brand: "Rioshop",
+      slug: "ao-thun-nam-basic-cotton",
+      status: "active",
+      categoryId: "CATEGORY_ID_OR_CATEGORY_SLUG",
+      categoryName: "",
+      categorySlug: "",
+      collectionIds: "COLLECTION_ID_OR_COLLECTION_SLUG",
+      collectionNames: "",
+      collectionSlugs: "",
+      basePrice: 299000,
+      salePrice: 199000,
+      gender: "men",
+      ageGroup: "adult",
+      material: "Cotton|Spandex",
+      care: "Giat lanh|Khong say",
+      shortDescription: "Ao thun nam mac hang ngay",
+      description: "Mo ta chi tiet san pham",
+      seoTitle: "Ao thun nam basic",
+      seoDescription: "Ao thun nam basic cotton dep",
+      seoKeywords: "ao thun nam|basic cotton|rioshop",
+      variantId: "VAR-2",
+      variantSku: "AO-THUN-NAM-001-WHITE-L",
+      variantColorName: "Trang",
+      variantColorHex: "#FFFFFF",
+      variantSize: "L",
+      variantSizeLabel: "L",
+      variantStock: 15,
+      variantAdditionalPrice: 0,
+      variantBarcode: "",
+      variantImages: "https://example.com/image-1.jpg|https://example.com/image-2.jpg",
+      variantIsActive: "true",
+    },
+  ];
+
+  const csvContent = serializeCsv(EXPORT_COLUMNS, templateRows);
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    'attachment; filename="products-import-template.csv"',
+  );
+  res.status(200).send(`${CSV_BOM}${csvContent}`);
+});
+
 export const importProductsCsv = asyncHandler(async (req, res) => {
   if (!req.file) {
     return sendError(res, 400, "CSV file is required");
