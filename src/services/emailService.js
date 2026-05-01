@@ -359,11 +359,11 @@ class EmailService {
       actionLabel: "Xem chi tiết đơn hàng",
     });
 
-    const text = `Don hang ${orderNumber} da duoc tao. Tong thanh toan: ${total}.`;
+    const text = `Đơn hàng ${orderNumber} đã được tạo. Tổng thanh toán: ${total}.`;
 
     return this.sendMail({
       to: email,
-      subject: `[RioShop] Xac nhan don hang ${orderNumber}`,
+      subject: `[RioShop] Xác nhận đơn hàng ${orderNumber}`,
       html,
       text,
     });
@@ -407,9 +407,9 @@ class EmailService {
 
     return this.sendMail({
       to: email,
-      subject: `[RioShop] Don hang ${orderNumber} - ${nextStatusLabel}`,
+      subject: `[RioShop] Đơn hàng ${orderNumber} - ${nextStatusLabel}`,
       html,
-      text: `Don hang ${orderNumber} da chuyen sang trang thai ${nextStatusLabel}.`,
+      text: `Đơn hàng ${orderNumber} đã chuyển sang trạng thái ${nextStatusLabel}.`,
     });
   }
 
@@ -453,9 +453,9 @@ class EmailService {
 
     return this.sendMail({
       to: email,
-      subject: `[RioShop] Thanh toan don ${orderNumber} - ${nextLabel}`,
+      subject: `[RioShop] Thanh toán đơn ${orderNumber} - ${nextLabel}`,
       html,
-      text: `Trang thai thanh toan don ${orderNumber}: ${previousLabel} -> ${nextLabel}.`,
+      text: `Trạng thái thanh toán đơn ${orderNumber}: ${previousLabel} -> ${nextLabel}.`,
     });
   }
 
@@ -498,9 +498,9 @@ class EmailService {
 
     return this.sendMail({
       to: email,
-      subject: "[RioShop] Dat lai mat khau",
+      subject: "[RioShop] Đặt lại mật khẩu",
       html,
-      text: `Yeu cau dat lai mat khau. UserId: ${userId}. Token: ${resetToken}`,
+      text: `Yêu cầu đặt lại mật khẩu. UserId: ${userId}. Token: ${resetToken}`,
     });
   }
 
@@ -534,9 +534,9 @@ class EmailService {
 
     return this.sendMail({
       to: email,
-      subject: "[RioShop] Chao mung ban",
+      subject: "[RioShop] Chào mừng bạn",
       html,
-      text: `Xin chao ${fullName}, tai khoan RioShop cua ban da duoc tao thanh cong.`,
+      text: `Xin chào ${fullName}, tài khoản RioShop của bạn đã được tạo thành công.`,
     });
   }
 }

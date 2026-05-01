@@ -108,7 +108,7 @@ export class PaymentRecordService {
           gatewayResponse = await MomoPaymentService.createPayment({
             orderId: payment._id.toString(),
             amount: resolvedAmount,
-            orderInfo: `Thanh toan don ${order.orderNumber || order._id.toString()}`,
+            orderInfo: `Thanh toán đơn ${order.orderNumber || order._id.toString()}`,
             redirectUrl: returnUrl,
             ipnUrl,
             requestId: requestId || payment._id.toString(),
