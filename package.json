@@ -7,6 +7,9 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+    "ngrok": "ngrok http --url=chanciest-xavi-pedipalpate.ngrok-free.dev 5000",
+    "demo": "concurrently --names \"server,ngrok\" -c \"cyan,magenta\" --kill-others \"npm start\" \"npm run ngrok\"",
+    "demo:full": "concurrently --names \"client,server,ngrok\" -c \"yellow,cyan,magenta\" --kill-others \"npm --prefix ../client run build:watch\" \"npm start\" \"npm run ngrok\"",
     "seed": "node scripts/seedStorefrontData.js",
     "seed:storefront": "node scripts/seedStorefrontData.js",
     "seed:fashion-demo": "node scripts/seedFashionDemoData.js",
@@ -45,6 +48,7 @@
     "socket.io": "^4.8.3"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "nodemon": "^3.1.14"
   }
 }

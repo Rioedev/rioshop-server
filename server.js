@@ -5,6 +5,12 @@ import morgan from "morgan";
 import { Server } from "socket.io";
 import http from "http";
 import dotenv from "dotenv";
+import path from "path";
+import { fileURLToPath } from "url";
+import fs from "fs";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 import connectDB from "./src/config/database.js";
 import { redisClient } from "./src/config/redis.js";
@@ -77,7 +83,8 @@ const io = new Server(server, {
 });
 
 // Middleware
-app.use(helmet());
+// CSP tắt để SPA build chạy qua ngrok không bị chặn inline style/asset
+app.use(helmet({ contentSecurityPolicy: false, crossOriginEmbedderPolicy: false }));
 app.use(morgan("combined"));
 app.use(
   cors(corsOptions),
@@ -125,39 +132,53 @@ app.use("/api/flash-sales", flashSaleRoutes);
 app.use("/api/brand-configs", brandConfigRoutes);
 app.use("/api/blogs", blogRoutes);
 
-// Root endpoint
-app.get("/", (req, res) => {
-  res.json({
-    success: true,
-    message: "Welcome to Rioshop API",
-    version: "1.0.0",
-    endpoints: {
-      health: "/health",
-      products: "/api/products",
-      categories: "/api/categories",
-      collections: "/api/collections",
-      users: "/api/users",
-      auth: "/api/auth",
-      carts: "/api/carts",
-      orders: "/api/orders",
-      payments: "/api/payments",
-      blogs: "/api/blogs",
-    },
-  });
-});
-
 // Health check endpoint
 app.get("/health", (req, res) => {
   res.json({ status: "OK", timestamp: new Date().toISOString() });
 });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: "Route not found",
-    path: req.originalUrl,
+// Serve built React SPA (client/dist) — same-origin với API, dùng cho ngrok/deploy
+const clientDistPath = path.resolve(__dirname, "../client/dist");
+const clientIndexPath = path.join(clientDistPath, "index.html");
+const hasClientBuild = fs.existsSync(clientIndexPath);
+
+if (hasClientBuild) {
+  app.use(express.static(clientDistPath));
+  console.log(`📦 Serving client build from ${clientDistPath}`);
+} else {
+  console.log("⚠️  client/dist chưa có. Chạy `npm run build` trong thư mục client để serve SPA.");
+  // Fallback root để biết server còn sống khi chưa có build
+  app.get("/", (req, res) => {
+    res.json({
+      success: true,
+      message: "Welcome to Rioshop API (client build not found)",
+      version: "1.0.0",
+    });
   });
+}
+
+// 404 / SPA fallback
+app.use((req, res, next) => {
+  // API request không match route nào → 404 JSON
+  if (req.path.startsWith("/api") || req.path === "/health") {
+    return res.status(404).json({
+      success: false,
+      message: "Route not found",
+      path: req.originalUrl,
+    });
+  }
+
+  // Non-GET hoặc không có build → trả 404 JSON
+  if (!hasClientBuild || req.method !== "GET") {
+    return res.status(404).json({
+      success: false,
+      message: "Route not found",
+      path: req.originalUrl,
+    });
+  }
+
+  // GET non-API và có build → trả về index.html để React Router xử lý
+  res.sendFile(clientIndexPath);
 });
 
 // Error handling middleware
