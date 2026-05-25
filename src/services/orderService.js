@@ -1469,6 +1469,11 @@ export class OrderService {
       variantSku,
       warehouseId: SINGLE_WAREHOUSE_ID,
     }).session(session);
+    const wasLowStock =
+      inventory &&
+      inventory.reorderPoint !== undefined &&
+      inventory.reorderPoint !== null &&
+      Number(inventory.available || 0) <= Number(inventory.reorderPoint || 0);
 
     if (!inventory) {
       let initialReserved = 0;
@@ -1505,6 +1510,9 @@ export class OrderService {
     inventory.updatedAt = new Date();
 
     await inventory.save({ session });
+    if (!wasLowStock && inventory.lowStockAlert) {
+      void notificationService.notifyInventoryLowStock(inventory);
+    }
   }
 
   resolveShippingCarrier(data = {}) {

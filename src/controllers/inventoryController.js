@@ -39,6 +39,8 @@ export const updateInventory = asyncHandler(async (req, res) => {
       onHand: Number(inventory.onHand || 0),
       reserved: Number(inventory.reserved || 0),
       available: Number(inventory.available || 0),
+      reorderPoint: inventory.reorderPoint ?? null,
+      lowStockAlert: Boolean(inventory.lowStockAlert),
       incoming: Number(inventory.incoming || 0),
       updatedAt: inventory.updatedAt || new Date(),
     });

@@ -2,6 +2,7 @@ import Inventory from "../models/Inventory.js";
 import Product from "../models/Product.js";
 import { SINGLE_WAREHOUSE_ID, SINGLE_WAREHOUSE_NAME } from "../constants/warehouse.js";
 import { AppError } from "../utils/helpers.js";
+import notificationService from "./notificationService.js";
 
 export class InventoryService {
   async getInventoryByVariantSku(variantSku, options = {}) {
@@ -61,6 +62,9 @@ export class InventoryService {
       query.warehouseId = SINGLE_WAREHOUSE_ID;
 
       let inventory = await Inventory.findOne(query);
+      const wasLowStock = inventory
+        ? this.isLowStockByRule(inventory.available, inventory.reorderPoint)
+        : false;
 
       if (!inventory) {
         if (!data.productId) {
@@ -114,6 +118,9 @@ export class InventoryService {
 
       await inventory.save();
       await this.syncProductFromSingleWarehouseInventory(inventory.productId);
+      if (!wasLowStock && inventory.lowStockAlert) {
+        void notificationService.notifyInventoryLowStock(inventory);
+      }
       return inventory;
     } catch (error) {
       throw error;
@@ -150,6 +157,9 @@ export class InventoryService {
             variantSku: variant.sku,
             warehouseId: SINGLE_WAREHOUSE_ID,
           });
+          const wasLowStock = inventory
+            ? this.isLowStockByRule(inventory.available, inventory.reorderPoint)
+            : false;
 
           if (!inventory) {
             inventory = new Inventory({
@@ -181,6 +191,9 @@ export class InventoryService {
           inventory.updatedAt = new Date();
 
           await inventory.save();
+          if (!wasLowStock && inventory.lowStockAlert) {
+            void notificationService.notifyInventoryLowStock(inventory);
+          }
           return inventory;
         }),
       );

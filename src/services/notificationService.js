@@ -85,6 +85,21 @@ const buildAdminOrderLink = (orderId = "") => {
   return `/admin/orders?focusOrderId=${encodeURIComponent(normalizedOrderId)}`;
 };
 
+const buildInventoryAlertLabel = (available, reorderPoint) => {
+  const safeAvailable = Math.max(0, Number(available || 0));
+  const safeReorderPoint = Math.max(0, Number(reorderPoint || 0));
+
+  if (safeAvailable <= 0) {
+    return "Hết hàng";
+  }
+
+  if (safeAvailable <= Math.max(1, Math.floor(safeReorderPoint / 2))) {
+    return "Cần nhập gấp";
+  }
+
+  return "Sắp hết";
+};
+
 export class NotificationService {
   async getUserNotifications(userId, options = {}) {
     const { page = 1, limit = 20, unreadOnly = false } = options;
@@ -293,6 +308,39 @@ export class NotificationService {
       await this.createNotifications(rows);
     } catch {
       // Do not block order flow due to notification error.
+    }
+  }
+
+  async notifyInventoryLowStock(inventory) {
+    try {
+      if (!inventory) {
+        return;
+      }
+
+      const variantSku = inventory.variantSku?.toString?.().trim?.() || "";
+      const available = Math.max(0, Number(inventory.available || 0));
+      const reorderPoint = inventory.reorderPoint === null || inventory.reorderPoint === undefined
+        ? null
+        : Math.max(0, Number(inventory.reorderPoint || 0));
+
+      if (!variantSku || reorderPoint === null || available > reorderPoint) {
+        return;
+      }
+
+      const adminIds = await this.getActiveAdminIds();
+      const alertLabel = buildInventoryAlertLabel(available, reorderPoint);
+      await this.createNotifications(
+        adminIds.map((adminId) => ({
+          userId: adminId,
+          type: "system",
+          title: `Tồn kho ${alertLabel.toLowerCase()}`,
+          body: `SKU ${variantSku} còn ${available}, ngưỡng cảnh báo ${reorderPoint}. Vui lòng kiểm tra nhập hàng.`,
+          link: `/admin/inventories`,
+          channel: ["in_app"],
+        })),
+      );
+    } catch {
+      // Do not block inventory flow due to notification error.
     }
   }
 
