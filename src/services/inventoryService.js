@@ -106,15 +106,92 @@ export class InventoryService {
       }
 
       inventory.available = Math.max(0, (inventory.onHand || 0) - (inventory.reserved || 0));
-      inventory.lowStockAlert =
-        data.lowStockAlert !== undefined
-          ? Boolean(data.lowStockAlert)
-          : this.isLowStockByRule(inventory.available, inventory.reorderPoint);
+      inventory.lowStockAlert = this.isLowStockByRule(
+        inventory.available,
+        inventory.reorderPoint,
+      );
       inventory.updatedAt = new Date();
 
       await inventory.save();
       await this.syncProductFromSingleWarehouseInventory(inventory.productId);
       return inventory;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async updateInventoryRulesByProduct(productId, data = {}) {
+    try {
+      const product = await Product.findOne({
+        _id: productId,
+        deletedAt: null,
+      }).select("_id variants");
+
+      if (!product) {
+        throw new AppError("Product not found", 404);
+      }
+
+      const variantSkus = (product.variants || [])
+        .filter((variant) => variant?.sku && variant.isActive !== false)
+        .map((variant) => ({
+          sku: variant.sku.toString().trim(),
+          stock: Math.max(0, Number(variant.stock || 0)),
+        }))
+        .filter((variant) => variant.sku);
+
+      if (variantSkus.length === 0) {
+        throw new AppError("Product has no active variants", 400);
+      }
+
+      const updates = await Promise.all(
+        variantSkus.map(async (variant) => {
+          let inventory = await Inventory.findOne({
+            productId,
+            variantSku: variant.sku,
+            warehouseId: SINGLE_WAREHOUSE_ID,
+          });
+
+          if (!inventory) {
+            inventory = new Inventory({
+              productId,
+              variantSku: variant.sku,
+              warehouseId: SINGLE_WAREHOUSE_ID,
+              warehouseName: SINGLE_WAREHOUSE_NAME,
+              onHand: variant.stock,
+              reserved: 0,
+              available: variant.stock,
+              incoming: 0,
+            });
+          }
+
+          inventory.warehouseId = SINGLE_WAREHOUSE_ID;
+          inventory.warehouseName = SINGLE_WAREHOUSE_NAME;
+          if (data.reorderPoint !== undefined) {
+            inventory.reorderPoint =
+              data.reorderPoint === null ? null : Number(data.reorderPoint);
+          }
+          if (data.reorderQty !== undefined) {
+            inventory.reorderQty = data.reorderQty === null ? null : Number(data.reorderQty);
+          }
+          inventory.available = Math.max(0, Number(inventory.onHand || 0) - Number(inventory.reserved || 0));
+          inventory.lowStockAlert = this.isLowStockByRule(
+            inventory.available,
+            inventory.reorderPoint,
+          );
+          inventory.updatedAt = new Date();
+
+          await inventory.save();
+          return inventory;
+        }),
+      );
+
+      await this.syncProductFromSingleWarehouseInventory(productId);
+
+      return {
+        productId,
+        updatedCount: updates.length,
+        variantSkus: updates.map((item) => item.variantSku),
+      };
     } catch (error) {
       throw error;
     }
@@ -127,17 +204,12 @@ export class InventoryService {
     if (threshold !== undefined && threshold !== null) {
       query.available = { $lte: Number(threshold) };
     } else {
-      query.$or = [
-        { lowStockAlert: true },
-        {
-          $expr: {
-            $and: [
-              { $ne: ["$reorderPoint", null] },
-              { $lte: ["$available", "$reorderPoint"] },
-            ],
-          },
-        },
-      ];
+      query.$expr = {
+        $and: [
+          { $ne: ["$reorderPoint", null] },
+          { $lte: ["$available", "$reorderPoint"] },
+        ],
+      };
     }
 
     try {

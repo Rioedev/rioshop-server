@@ -43,3 +43,15 @@ export const updateInventoryValidation = Joi.object({
     .min(1)
     .required(),
 });
+
+export const updateInventoryRulesByProductValidation = Joi.object({
+  params: Joi.object({
+    productId: objectId.required(),
+  }).required(),
+  body: Joi.object({
+    reorderPoint: Joi.number().integer().min(0).allow(null).optional(),
+    reorderQty: Joi.number().integer().min(0).allow(null).optional(),
+  })
+    .min(1)
+    .required(),
+});

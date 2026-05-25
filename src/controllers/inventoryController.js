@@ -45,3 +45,20 @@ export const updateInventory = asyncHandler(async (req, res) => {
   }
   sendSuccess(res, 200, inventory, "Inventory updated");
 });
+
+export const updateInventoryRulesByProduct = asyncHandler(async (req, res) => {
+  const result = await inventoryService.updateInventoryRulesByProduct(req.params.productId, req.body);
+  const io = getSocketServer();
+
+  if (io?.emitInventoryUpdate) {
+    io.emitInventoryUpdate(req.params.productId, {
+      action: "inventory_rules_updated",
+      source: "inventory_controller",
+      productId: req.params.productId,
+      variantSkus: result.variantSkus,
+      updatedAt: new Date(),
+    });
+  }
+
+  sendSuccess(res, 200, result, "Inventory rules updated");
+});
