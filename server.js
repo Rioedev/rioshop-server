@@ -37,6 +37,7 @@ import adminRoutes from "./src/routes/admins.js";
 import flashSaleRoutes from "./src/routes/flashSales.js";
 import brandConfigRoutes from "./src/routes/brandConfigs.js";
 import blogRoutes from "./src/routes/blogs.js";
+import aiRecommendationRoutes from "./src/routes/aiRecommendations.js";
 import orderLifecycleAutomationService from "./src/services/orderLifecycleAutomationService.js";
 import shipmentLifecycleAutomationService from "./src/services/shipmentLifecycleAutomationService.js";
 import notificationLifecycleAutomationService from "./src/services/notificationLifecycleAutomationService.js";
@@ -131,6 +132,7 @@ app.use("/api/admins", adminRoutes);
 app.use("/api/flash-sales", flashSaleRoutes);
 app.use("/api/brand-configs", brandConfigRoutes);
 app.use("/api/blogs", blogRoutes);
+app.use("/api/ai", aiRecommendationRoutes);
 
 // Health check endpoint
 app.get("/health", (req, res) => {
@@ -245,4 +247,3 @@ process.on("SIGTERM", () => {
 });
 
 export default app;
-

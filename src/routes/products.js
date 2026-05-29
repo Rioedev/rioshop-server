@@ -3,9 +3,9 @@ import multer from "multer";
 import { validateRequest } from "../middlewares/validation.js";
 import {
   getAllProducts,
-  exportProductsCsv,
-  downloadProductsImportTemplateCsv,
-  importProductsCsv,
+  exportProductsXlsx,
+  downloadProductsImportTemplateXlsx,
+  importProductsXlsx,
   getProductBySlug,
   searchProducts,
   createProduct,
@@ -31,10 +31,23 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024,
   },
 });
-const uploadCsv = multer({
+const XLSX_UPLOAD_MIME = new Set([
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel.sheet.macroEnabled.12",
+  "application/octet-stream",
+]);
+const uploadXlsx = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024,
+  },
+  fileFilter: (_req, file, cb) => {
+    const fileName = file.originalname || "";
+    if (XLSX_UPLOAD_MIME.has(file.mimetype) || /\.xlsx$/i.test(fileName)) {
+      cb(null, true);
+      return;
+    }
+    cb(new Error("Only .xlsx files are allowed"));
   },
 });
 
@@ -44,14 +57,14 @@ router.get("/", validateRequest(paginationValidation), getAllProducts);
 // Search products
 router.get("/search", validateRequest(searchProductsValidation), searchProducts);
 
-// Export products to CSV
-router.get("/export-csv", validateRequest(paginationValidation), exportProductsCsv);
+// Export products to XLSX
+router.get("/export-xlsx", validateRequest(paginationValidation), exportProductsXlsx);
 
-// Download products CSV import template
-router.get("/import-template-csv", downloadProductsImportTemplateCsv);
+// Download products XLSX import template
+router.get("/import-template-xlsx", downloadProductsImportTemplateXlsx);
 
-// Import products from CSV
-router.post("/import-csv", uploadCsv.single("file"), importProductsCsv);
+// Import products from XLSX
+router.post("/import-xlsx", uploadXlsx.single("file"), importProductsXlsx);
 
 // Create product
 router.post("/", validateRequest(createProductValidation), createProduct);

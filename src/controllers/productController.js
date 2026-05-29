@@ -5,6 +5,7 @@ import {
   getPaginationParams,
 } from "../utils/helpers.js";
 import slugify from "slugify";
+import ExcelJS from "exceljs";
 import Product from "../models/Product.js";
 import Category from "../models/Category.js";
 import Collection from "../models/Collection.js";
@@ -24,46 +25,180 @@ const splitListValues = (value) =>
     .map((item) => item.trim())
     .filter(Boolean);
 const OBJECT_ID_REGEX = /^[0-9a-fA-F]{24}$/;
-const CSV_BOM = "\uFEFF";
 const MAX_EXPORT_ROWS = 10000;
+const XLSX_MIME_TYPES = new Set([
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel.sheet.macroEnabled.12",
+  "application/octet-stream",
+]);
 const PRODUCT_STATUS_SET = new Set(["draft", "active", "archived", "out_of_stock"]);
 const PRODUCT_GENDER_SET = new Set(["men", "women", "unisex", "kids"]);
 const PRODUCT_AGE_GROUP_SET = new Set(["adult", "teen", "kids", "baby"]);
+
 const EXPORT_COLUMNS = [
-  "productSku",
-  "productName",
-  "brand",
-  "slug",
-  "status",
-  "categoryId",
-  "categoryName",
-  "categorySlug",
-  "collectionIds",
-  "collectionNames",
-  "collectionSlugs",
-  "basePrice",
-  "salePrice",
-  "gender",
-  "ageGroup",
-  "material",
-  "care",
-  "shortDescription",
-  "description",
-  "seoTitle",
-  "seoDescription",
-  "seoKeywords",
-  "variantId",
-  "variantSku",
-  "variantColorName",
-  "variantColorHex",
-  "variantSize",
-  "variantSizeLabel",
-  "variantStock",
-  "variantAdditionalPrice",
-  "variantBarcode",
-  "variantImages",
-  "variantIsActive",
+  { key: "productSku", header: "productSku", width: 24 },
+  { key: "productName", header: "productName", width: 32 },
+  { key: "brand", header: "brand", width: 18 },
+  { key: "slug", header: "slug", width: 28 },
+  { key: "status", header: "status", width: 12 },
+  { key: "categoryId", header: "categoryId", width: 26 },
+  { key: "categoryName", header: "categoryName", width: 22 },
+  { key: "categorySlug", header: "categorySlug", width: 22 },
+  { key: "collectionIds", header: "collectionIds", width: 26 },
+  { key: "collectionNames", header: "collectionNames", width: 26 },
+  { key: "collectionSlugs", header: "collectionSlugs", width: 26 },
+  { key: "basePrice", header: "basePrice", width: 12, style: { numFmt: "#,##0" } },
+  { key: "salePrice", header: "salePrice", width: 12, style: { numFmt: "#,##0" } },
+  { key: "gender", header: "gender", width: 10 },
+  { key: "ageGroup", header: "ageGroup", width: 10 },
+  { key: "material", header: "material", width: 22 },
+  { key: "care", header: "care", width: 22 },
+  { key: "shortDescription", header: "shortDescription", width: 32 },
+  { key: "description", header: "description", width: 40 },
+  { key: "seoTitle", header: "seoTitle", width: 24 },
+  { key: "seoDescription", header: "seoDescription", width: 32 },
+  { key: "seoKeywords", header: "seoKeywords", width: 24 },
+  { key: "variantId", header: "variantId", width: 12 },
+  { key: "variantSku", header: "variantSku", width: 24 },
+  { key: "variantColorName", header: "variantColorName", width: 16 },
+  { key: "variantColorHex", header: "variantColorHex", width: 12 },
+  { key: "variantSize", header: "variantSize", width: 10 },
+  { key: "variantSizeLabel", header: "variantSizeLabel", width: 14 },
+  { key: "variantStock", header: "variantStock", width: 12, style: { numFmt: "#,##0" } },
+  { key: "variantAdditionalPrice", header: "variantAdditionalPrice", width: 16, style: { numFmt: "#,##0" } },
+  { key: "variantBarcode", header: "variantBarcode", width: 18 },
+  { key: "variantImages", header: "variantImages", width: 40 },
+  { key: "variantIsActive", header: "variantIsActive", width: 14 },
 ];
+
+const COLUMN_GUIDE = [
+  ["productSku", "B\u1EAFt bu\u1ED9c. M\u00E3 s\u1EA3n ph\u1EA9m cha (g\u1ED9p c\u00E1c d\u00F2ng c\u00F9ng SKU th\u00E0nh 1 s\u1EA3n ph\u1EA9m)."],
+  ["productName", "B\u1EAFt bu\u1ED9c. T\u00EAn hi\u1EC3n th\u1ECB c\u1EE7a s\u1EA3n ph\u1EA9m."],
+  ["brand", "B\u1EAFt bu\u1ED9c. Th\u01B0\u01A1ng hi\u1EC7u."],
+  ["slug", "T\u00F9y ch\u1ECDn. B\u1ECF tr\u1ED1ng \u0111\u1EC3 t\u1EF1 sinh t\u1EEB t\u00EAn + SKU."],
+  ["status", "draft | active | archived | out_of_stock (m\u1EB7c \u0111\u1ECBnh draft)."],
+  ["categoryId", "B\u1EAFt bu\u1ED9c. C\u00F3 th\u1EC3 \u0111i\u1EC1n ObjectId c\u1EE7a category ho\u1EB7c categorySlug."],
+  ["categoryName / categorySlug", "Ch\u1EC9 \u0111\u1EC3 tham kh\u1EA3o khi xu\u1EA5t, h\u1EC7 th\u1ED1ng kh\u00F4ng \u0111\u1ECDc khi nh\u1EADp."],
+  ["collectionIds", "T\u00F9y ch\u1ECDn. ObjectId ho\u1EB7c slug, nhi\u1EC1u gi\u00E1 tr\u1ECB c\u00E1ch nhau b\u1EB1ng d\u1EA5u |"],
+  ["basePrice / salePrice", "S\u1ED1 nguy\u00EAn VND. salePrice ph\u1EA3i \u2264 basePrice."],
+  ["gender", "men | women | unisex | kids."],
+  ["ageGroup", "adult | teen | kids | baby."],
+  ["material / care / seoKeywords", "Nhi\u1EC1u gi\u00E1 tr\u1ECB c\u00E1ch nhau b\u1EB1ng d\u1EA5u |"],
+  ["variant* (c\u00F9ng productSku)", "M\u1ED7i d\u00F2ng = 1 bi\u1EBFn th\u1EC3. \u0110\u1EC3 nhi\u1EC1u bi\u1EBFn th\u1EC3, l\u1EB7p l\u1EA1i c\u00F9ng productSku."],
+  ["variantImages", "Danh s\u00E1ch URL \u1EA3nh, c\u00E1ch nhau b\u1EB1ng d\u1EA5u |"],
+  ["variantIsActive", "true / false (m\u1EB7c \u0111\u1ECBnh true)."],
+];
+
+const buildProductsWorkbook = ({ rows, sheetName = "Products" }) => {
+  const workbook = new ExcelJS.Workbook();
+  workbook.creator = "Rioshop";
+  workbook.created = new Date();
+
+  const sheet = workbook.addWorksheet(sheetName, {
+    views: [{ state: "frozen", ySplit: 1 }],
+  });
+  sheet.columns = EXPORT_COLUMNS.map(({ key, header, width, style }) => ({
+    header,
+    key,
+    width,
+    style,
+  }));
+  sheet.getRow(1).font = { bold: true };
+  sheet.getRow(1).alignment = { vertical: "middle" };
+
+  for (const row of rows) {
+    sheet.addRow(row);
+  }
+
+  const guide = workbook.addWorksheet("H\u01B0\u1EDBng d\u1EABn");
+  guide.columns = [
+    { header: "C\u1ED9t", key: "column", width: 28 },
+    { header: "M\u00F4 t\u1EA3", key: "description", width: 80 },
+  ];
+  guide.getRow(1).font = { bold: true };
+  for (const [column, description] of COLUMN_GUIDE) {
+    guide.addRow({ column, description });
+  }
+
+  return workbook;
+};
+
+const parseProductsWorkbook = async (buffer) => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const sheet = workbook.worksheets[0];
+  if (!sheet) {
+    return [];
+  }
+
+  const headerRow = sheet.getRow(1);
+  const headers = [];
+  headerRow.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+    headers[colNumber] = String(cell.value ?? "").trim();
+  });
+
+  const objects = [];
+  for (let rowIndex = 2; rowIndex <= sheet.rowCount; rowIndex += 1) {
+    const row = sheet.getRow(rowIndex);
+    if (!row || row.cellCount === 0) {
+      continue;
+    }
+
+    const obj = { __rowNumber: rowIndex, __normalized: {} };
+    let hasValue = false;
+
+    for (let colNumber = 1; colNumber < headers.length; colNumber += 1) {
+      const header = headers[colNumber];
+      if (!header) {
+        continue;
+      }
+      const cell = row.getCell(colNumber);
+      const value = readCellValue(cell);
+      if (value !== "") {
+        hasValue = true;
+      }
+      obj[header] = value;
+      obj.__normalized[normalizeHeaderKey(header)] = value;
+    }
+
+    if (hasValue) {
+      objects.push(obj);
+    }
+  }
+
+  return objects;
+};
+
+const readCellValue = (cell) => {
+  if (!cell || cell.value === null || cell.value === undefined) {
+    return "";
+  }
+
+  const { value } = cell;
+
+  if (typeof value === "object") {
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+    if (typeof value.text === "string") {
+      return value.text;
+    }
+    if (Array.isArray(value.richText)) {
+      return value.richText.map((part) => part.text ?? "").join("");
+    }
+    if (typeof value.result !== "undefined") {
+      return String(value.result);
+    }
+    if (typeof value.formula === "string") {
+      return "";
+    }
+    if (typeof value.hyperlink === "string") {
+      return value.hyperlink;
+    }
+  }
+
+  return String(value);
+};
 
 const VIETNAMESE_CHAR_GROUPS = {
   a: "a\u00e0\u00e1\u1ea1\u1ea3\u00e3\u0103\u1eb1\u1eaf\u1eb7\u1eb3\u1eb5\u00e2\u1ea7\u1ea5\u1ead\u1ea9\u1eab",
@@ -103,16 +238,16 @@ const toVietnameseFlexibleRegex = (value = "") => {
   return new RegExp(pattern, "i");
 };
 
-const normalizeCsvHeaderKey = (value = "") =>
+const normalizeHeaderKey = (value = "") =>
   value
     .trim()
     .toLowerCase()
     .replace(/[\s_\-]+/g, "");
 
-const getCsvCellValue = (row = {}, aliases = []) => {
+const getRowValue = (row = {}, aliases = []) => {
   const normalized = row.__normalized ?? {};
   for (const alias of aliases) {
-    const aliasKey = normalizeCsvHeaderKey(alias);
+    const aliasKey = normalizeHeaderKey(alias);
     const nextValue = normalized[aliasKey];
     if (nextValue !== undefined && nextValue !== null) {
       const trimmed = String(nextValue).trim();
@@ -123,108 +258,6 @@ const getCsvCellValue = (row = {}, aliases = []) => {
   }
 
   return "";
-};
-
-const parseCsvRows = (text = "") => {
-  const rows = [];
-  let row = [];
-  let cell = "";
-  let inQuotes = false;
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    const nextChar = text[index + 1];
-
-    if (inQuotes) {
-      if (char === '"') {
-        if (nextChar === '"') {
-          cell += '"';
-          index += 1;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        cell += char;
-      }
-      continue;
-    }
-
-    if (char === '"') {
-      inQuotes = true;
-      continue;
-    }
-
-    if (char === ",") {
-      row.push(cell);
-      cell = "";
-      continue;
-    }
-
-    if (char === "\n") {
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = "";
-      continue;
-    }
-
-    if (char === "\r") {
-      continue;
-    }
-
-    cell += char;
-  }
-
-  row.push(cell);
-  rows.push(row);
-  return rows;
-};
-
-const csvRowsToObjects = (rows = []) => {
-  if (!Array.isArray(rows) || rows.length === 0) {
-    return [];
-  }
-
-  const headers = rows[0].map((item) => String(item ?? "").trim());
-  const objects = [];
-
-  for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
-    const cells = rows[rowIndex] ?? [];
-    const obj = { __rowNumber: rowIndex + 1, __normalized: {} };
-    let hasValue = false;
-
-    headers.forEach((header, headerIndex) => {
-      const value = String(cells[headerIndex] ?? "");
-      if (value.trim().length > 0) {
-        hasValue = true;
-      }
-
-      obj[header] = value;
-      obj.__normalized[normalizeCsvHeaderKey(header)] = value;
-    });
-
-    if (hasValue) {
-      objects.push(obj);
-    }
-  }
-
-  return objects;
-};
-
-const escapeCsvCell = (value) => {
-  const normalized = value == null ? "" : String(value);
-  if (/["\n\r,]/.test(normalized)) {
-    return `"${normalized.replace(/"/g, '""')}"`;
-  }
-  return normalized;
-};
-
-const serializeCsv = (columns = [], rows = []) => {
-  const headerLine = columns.map((column) => escapeCsvCell(column)).join(",");
-  const bodyLines = rows.map((row) =>
-    columns.map((column) => escapeCsvCell(row[column] ?? "")).join(","),
-  );
-  return [headerLine, ...bodyLines].join("\n");
 };
 
 const toSafeNumber = (value, fallback = NaN) => {
@@ -366,7 +399,17 @@ export const getAllProducts = asyncHandler(async (req, res) => {
   sendSuccess(res, 200, products, "Products fetched successfully");
 });
 
-export const exportProductsCsv = asyncHandler(async (req, res) => {
+const XLSX_CONTENT_TYPE =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+const sendXlsxResponse = async (res, workbook, fileName) => {
+  const buffer = await workbook.xlsx.writeBuffer();
+  res.setHeader("Content-Type", XLSX_CONTENT_TYPE);
+  res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
+  res.status(200).send(Buffer.from(buffer));
+};
+
+export const exportProductsXlsx = asyncHandler(async (req, res) => {
   const filters = normalizeQueryFilters(req.query);
   let parsedSort = { createdAt: -1 };
   try {
@@ -413,8 +456,8 @@ export const exportProductsCsv = asyncHandler(async (req, res) => {
           .map((item) => item?.slug ?? "")
           .filter(Boolean)
           .join("|"),
-        basePrice: product.pricing?.basePrice ?? 0,
-        salePrice: product.pricing?.salePrice ?? 0,
+        basePrice: Number(product.pricing?.basePrice ?? 0),
+        salePrice: Number(product.pricing?.salePrice ?? 0),
         gender: product.gender ?? "",
         ageGroup: product.ageGroup ?? "",
         material: (product.material ?? []).filter(Boolean).join("|"),
@@ -439,15 +482,12 @@ export const exportProductsCsv = asyncHandler(async (req, res) => {
     }
   }
 
-  const csvContent = serializeCsv(EXPORT_COLUMNS, rows);
-  const fileName = `products-export-${new Date().toISOString().slice(0, 10)}.csv`;
-
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader("Content-Disposition", `attachment; filename="${fileName}"`);
-  res.status(200).send(`${CSV_BOM}${csvContent}`);
+  const workbook = buildProductsWorkbook({ rows });
+  const fileName = `products-export-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  await sendXlsxResponse(res, workbook, fileName);
 });
 
-export const downloadProductsImportTemplateCsv = asyncHandler(async (_req, res) => {
+export const downloadProductsImportTemplateXlsx = asyncHandler(async (_req, res) => {
   const templateRows = [
     {
       productSku: "AO-THUN-NAM-001",
@@ -521,36 +561,36 @@ export const downloadProductsImportTemplateCsv = asyncHandler(async (_req, res) 
     },
   ];
 
-  const csvContent = serializeCsv(EXPORT_COLUMNS, templateRows);
-  res.setHeader("Content-Type", "text/csv; charset=utf-8");
-  res.setHeader(
-    "Content-Disposition",
-    'attachment; filename="products-import-template.csv"',
-  );
-  res.status(200).send(`${CSV_BOM}${csvContent}`);
+  const workbook = buildProductsWorkbook({ rows: templateRows });
+  await sendXlsxResponse(res, workbook, "products-import-template.xlsx");
 });
 
-export const importProductsCsv = asyncHandler(async (req, res) => {
+export const importProductsXlsx = asyncHandler(async (req, res) => {
   if (!req.file) {
-    return sendError(res, 400, "CSV file is required");
+    return sendError(res, 400, "Excel file is required");
   }
 
   const fileName = req.file.originalname || "";
-  const isCsvFile =
-    req.file.mimetype?.includes("csv") ||
-    req.file.mimetype?.includes("excel") ||
-    /\.csv$/i.test(fileName);
+  const isXlsxFile =
+    XLSX_MIME_TYPES.has(req.file.mimetype) || /\.xlsx$/i.test(fileName);
 
-  if (!isCsvFile) {
-    return sendError(res, 400, "Only CSV files are allowed");
+  if (!isXlsxFile) {
+    return sendError(res, 400, "Only .xlsx files are allowed");
   }
 
-  const textContent = req.file.buffer.toString("utf8").replace(/^\uFEFF/, "");
-  const csvRows = parseCsvRows(textContent);
-  const dataRows = csvRowsToObjects(csvRows);
+  let dataRows = [];
+  try {
+    dataRows = await parseProductsWorkbook(req.file.buffer);
+  } catch (error) {
+    return sendError(
+      res,
+      400,
+      `Unable to read Excel file: ${error?.message || "invalid format"}`,
+    );
+  }
 
   if (dataRows.length === 0) {
-    return sendError(res, 400, "CSV file has no data rows");
+    return sendError(res, 400, "Excel file has no data rows");
   }
 
   const groupedProducts = new Map();
@@ -560,7 +600,7 @@ export const importProductsCsv = asyncHandler(async (req, res) => {
 
   for (const row of dataRows) {
     const skuValue = normalizeSkuValue(
-      getCsvCellValue(row, ["productSku", "sku"]),
+      getRowValue(row, ["productSku", "sku"]),
     );
     if (!skuValue) {
       rowErrors.push({
@@ -595,25 +635,25 @@ export const importProductsCsv = asyncHandler(async (req, res) => {
         variants: [],
       };
 
-    group.name ||= getCsvCellValue(row, ["productName", "name"]);
-    group.brand ||= getCsvCellValue(row, ["brand"]);
-    group.slug ||= getCsvCellValue(row, ["slug"]);
-    group.status ||= getCsvCellValue(row, ["status"]);
+    group.name ||= getRowValue(row, ["productName", "name"]);
+    group.brand ||= getRowValue(row, ["brand"]);
+    group.slug ||= getRowValue(row, ["slug"]);
+    group.status ||= getRowValue(row, ["status"]);
     group.categoryToken ||=
-      getCsvCellValue(row, ["categoryId", "categorySlug", "category"]);
-    group.basePriceRaw ||= getCsvCellValue(row, ["basePrice"]);
-    group.salePriceRaw ||= getCsvCellValue(row, ["salePrice"]);
-    group.gender ||= getCsvCellValue(row, ["gender"]);
-    group.ageGroup ||= getCsvCellValue(row, ["ageGroup"]);
-    group.materialRaw ||= getCsvCellValue(row, ["material"]);
-    group.careRaw ||= getCsvCellValue(row, ["care"]);
-    group.shortDescription ||= getCsvCellValue(row, ["shortDescription"]);
-    group.description ||= getCsvCellValue(row, ["description"]);
-    group.seoTitle ||= getCsvCellValue(row, ["seoTitle"]);
-    group.seoDescription ||= getCsvCellValue(row, ["seoDescription"]);
-    group.seoKeywordsRaw ||= getCsvCellValue(row, ["seoKeywords"]);
+      getRowValue(row, ["categoryId", "categorySlug", "category"]);
+    group.basePriceRaw ||= getRowValue(row, ["basePrice"]);
+    group.salePriceRaw ||= getRowValue(row, ["salePrice"]);
+    group.gender ||= getRowValue(row, ["gender"]);
+    group.ageGroup ||= getRowValue(row, ["ageGroup"]);
+    group.materialRaw ||= getRowValue(row, ["material"]);
+    group.careRaw ||= getRowValue(row, ["care"]);
+    group.shortDescription ||= getRowValue(row, ["shortDescription"]);
+    group.description ||= getRowValue(row, ["description"]);
+    group.seoTitle ||= getRowValue(row, ["seoTitle"]);
+    group.seoDescription ||= getRowValue(row, ["seoDescription"]);
+    group.seoKeywordsRaw ||= getRowValue(row, ["seoKeywords"]);
 
-    const collectionRaw = getCsvCellValue(row, ["collectionIds", "collections"]);
+    const collectionRaw = getRowValue(row, ["collectionIds", "collections"]);
     for (const token of splitListValues(collectionRaw)) {
       group.collectionTokens.add(token);
       collectionTokens.add(token);
@@ -624,17 +664,17 @@ export const importProductsCsv = asyncHandler(async (req, res) => {
     }
 
     group.variants.push({
-      variantId: getCsvCellValue(row, ["variantId"]),
-      sku: normalizeSkuValue(getCsvCellValue(row, ["variantSku"])),
-      colorName: getCsvCellValue(row, ["variantColorName"]),
-      colorHex: getCsvCellValue(row, ["variantColorHex"]),
-      size: getCsvCellValue(row, ["variantSize"]),
-      sizeLabel: getCsvCellValue(row, ["variantSizeLabel"]),
-      stockRaw: getCsvCellValue(row, ["variantStock"]),
-      additionalPriceRaw: getCsvCellValue(row, ["variantAdditionalPrice"]),
-      barcode: getCsvCellValue(row, ["variantBarcode"]),
-      imagesRaw: getCsvCellValue(row, ["variantImages"]),
-      isActiveRaw: getCsvCellValue(row, ["variantIsActive"]),
+      variantId: getRowValue(row, ["variantId"]),
+      sku: normalizeSkuValue(getRowValue(row, ["variantSku"])),
+      colorName: getRowValue(row, ["variantColorName"]),
+      colorHex: getRowValue(row, ["variantColorHex"]),
+      size: getRowValue(row, ["variantSize"]),
+      sizeLabel: getRowValue(row, ["variantSizeLabel"]),
+      stockRaw: getRowValue(row, ["variantStock"]),
+      additionalPriceRaw: getRowValue(row, ["variantAdditionalPrice"]),
+      barcode: getRowValue(row, ["variantBarcode"]),
+      imagesRaw: getRowValue(row, ["variantImages"]),
+      isActiveRaw: getRowValue(row, ["variantIsActive"]),
     });
 
     groupedProducts.set(skuValue, group);
@@ -858,6 +898,7 @@ export const importProductsCsv = asyncHandler(async (req, res) => {
     }
   }
 
+  const MAX_RETURNED_ERRORS = 1000;
   sendSuccess(
     res,
     200,
@@ -865,9 +906,10 @@ export const importProductsCsv = asyncHandler(async (req, res) => {
       created: createdCount,
       updated: updatedCount,
       failed: rowErrors.length,
-      errors: rowErrors.slice(0, 100),
+      totalErrors: rowErrors.length,
+      errors: rowErrors.slice(0, MAX_RETURNED_ERRORS),
     },
-    "Products CSV imported",
+    "Products Excel imported",
   );
 });
 
