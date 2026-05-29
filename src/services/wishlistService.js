@@ -108,8 +108,28 @@ export class WishlistService {
       name: itemData.name,
       image: itemData.image,
       price: Number(itemData.price || 0),
+      colorSwatches: this.normalizeColorSwatches(itemData.colorSwatches),
       addedAt: itemData.addedAt || new Date(),
     };
+  }
+
+  normalizeColorSwatches(value) {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+    return value
+      .map((swatch) => {
+        const key = swatch?.key?.toString().trim() || "";
+        if (!key) return null;
+        return {
+          key,
+          label: swatch?.label?.toString().trim() || "",
+          hex: swatch?.hex?.toString().trim() || "",
+          imageUrl: swatch?.imageUrl?.toString().trim() || "",
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 8);
   }
 }
 

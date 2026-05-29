@@ -34,8 +34,9 @@ const analyticsEventSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
-// TTL index - 365 days retention
-analyticsEventSchema.index({ createdAt: 1 }, { expireAfterSeconds: 31536000 });
+// TTL index — 60 days retention (MongoDB tự động xóa record cũ hơn 60 ngày).
+// Nếu muốn purge sớm hơn TTL, chạy `npm run purge:analytics -- --days=N`.
+analyticsEventSchema.index({ createdAt: 1 }, { expireAfterSeconds: 5184000 });
 analyticsEventSchema.index({ userId: 1, event: 1, createdAt: -1 });
 analyticsEventSchema.index({ event: 1, createdAt: -1 });
 analyticsEventSchema.index({ productId: 1, event: 1 });

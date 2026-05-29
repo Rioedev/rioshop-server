@@ -46,11 +46,16 @@ const brandConfigSchema = new mongoose.Schema({
   taxRate: Number,
   supportEmail: String,
   supportPhone: String,
+  supportHotlineNote: String,
+  supportHotlineNoteSecondary: String,
+  storeAddress: String,
   socialLinks: {
     facebook: String,
     instagram: String,
     tiktok: String,
     youtube: String,
+    zalo: String,
+    messenger: String,
   },
   featureFlags: {
     loyalty: { type: Boolean, default: true },
@@ -58,6 +63,18 @@ const brandConfigSchema = new mongoose.Schema({
     review: { type: Boolean, default: true },
   },
   storefront: {
+    promoBar: {
+      text: String,
+      isActive: { type: Boolean, default: true },
+    },
+    footer: {
+      introHeading: String,
+      intro: String,
+      companyName: String,
+      companyLegalText: String,
+      complianceBadges: [String],
+      newsletterPlaceholder: String,
+    },
     home: {
       hero: {
         kicker: String,
