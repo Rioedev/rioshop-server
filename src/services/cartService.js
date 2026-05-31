@@ -1,6 +1,7 @@
 import Cart from "../models/Cart.js";
 import Product from "../models/Product.js";
 import couponService from "./couponService.js";
+import pricingService from "./pricingService.js";
 import { AppError } from "../utils/helpers.js";
 
 const CART_ITEM_DELIMITER = "::";
@@ -12,9 +13,48 @@ export class CartService {
     try {
       const cart = await this.getOrCreateCart(userId);
       await this.normalizeLegacyCartItems(cart);
+      await this.refreshCartItemPrices(cart);
       return cart;
     } catch (error) {
       throw error;
+    }
+  }
+
+  // Tính lại giá cho từng item dựa trên flash sale hiện hành.
+  // Cần thiết vì cart cache unitPrice — nếu flash hết hạn lúc khách
+  // đang ngồi xem giỏ, giá cũ vẫn lưu và lệch với giá order sẽ trả.
+  // Chỉ cập nhật khi giá thực tế đổi.
+  async refreshCartItemPrices(cart) {
+    const items = cart.items || [];
+    if (items.length === 0) return;
+
+    const productIds = [...new Set(items.map((item) => item.productId?.toString()).filter(Boolean))];
+    const products = await Product.find({
+      _id: { $in: productIds },
+      deletedAt: null,
+    }).select("_id pricing variants status");
+    const productMap = new Map(products.map((product) => [product._id.toString(), product]));
+
+    let changed = false;
+    for (const item of items) {
+      const product = productMap.get(item.productId?.toString());
+      if (!product) continue;
+      const variant = (product.variants || []).find(
+        (entry) => (entry.sku || "").trim() === (item.variantSku || "").trim() && entry.isActive !== false,
+      );
+      if (!variant) continue;
+
+      const priced = await pricingService.resolveEffectivePrice(product, variant);
+      if (priced.unitPrice !== Number(item.unitPrice || 0)) {
+        item.unitPrice = priced.unitPrice;
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      cart.markModified("items");
+      cart.subtotal = this.calculateSubtotal(items);
+      await cart.save();
     }
   }
 
@@ -281,10 +321,8 @@ export class CartService {
       throw new AppError(`Variant ${normalizedVariantSku} is out of stock`, 409);
     }
 
-    const unitPrice = Math.max(
-      0,
-      Number(product.pricing?.salePrice || 0) + Number(variant.additionalPrice || 0),
-    );
+    const priced = await pricingService.resolveEffectivePrice(product, variant);
+    const unitPrice = priced.unitPrice;
     const variantLabel = this.buildVariantLabel(variant);
 
     const image =

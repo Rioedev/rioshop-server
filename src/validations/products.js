@@ -56,12 +56,23 @@ const productVariantValidation = Joi.object({
   position: Joi.number().integer().min(0),
 });
 
+// basePrice (giá niêm yết để hiển thị gạch ngang) là TÙY CHỌN.
+// Chỉ check ràng buộc basePrice >= salePrice khi admin có nhập.
 const createPricingValidation = Joi.object({
-  basePrice: Joi.number().min(0).required(),
-  salePrice: Joi.number().min(0).max(Joi.ref("basePrice")).required().messages({
-    "number.max": "salePrice must be less than or equal to basePrice",
-  }),
-});
+  basePrice: Joi.number().min(0).optional(),
+  salePrice: Joi.number().min(0).required(),
+})
+  .custom((value, helpers) => {
+    const base = Number(value.basePrice);
+    const sale = Number(value.salePrice);
+    if (Number.isFinite(base) && base > 0 && base < sale) {
+      return helpers.error("any.invalid");
+    }
+    return value;
+  })
+  .messages({
+    "any.invalid": "Giá niêm yết phải lớn hơn hoặc bằng giá bán",
+  });
 
 const updatePricingValidation = Joi.object({
   basePrice: Joi.number().min(0),
@@ -71,14 +82,15 @@ const updatePricingValidation = Joi.object({
     if (
       value.basePrice !== undefined &&
       value.salePrice !== undefined &&
-      value.salePrice > value.basePrice
+      Number(value.basePrice) > 0 &&
+      Number(value.basePrice) < Number(value.salePrice)
     ) {
       return helpers.error("any.invalid");
     }
     return value;
   })
   .messages({
-    "any.invalid": "salePrice must be less than or equal to basePrice",
+    "any.invalid": "Giá niêm yết phải lớn hơn hoặc bằng giá bán",
   });
 
 export const createProductValidation = Joi.object({

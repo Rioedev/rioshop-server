@@ -87,8 +87,10 @@ const productSchema = new mongoose.Schema(
         },
       ],
     },
+    // pricing.salePrice = giá bán thực tế (required)
+    // pricing.basePrice = giá niêm yết để hiển thị gạch ngang (optional, chỉ set khi muốn show giảm giá)
     pricing: {
-      basePrice: { type: Number, required: true },
+      basePrice: { type: Number, default: 0 },
       salePrice: { type: Number, required: true },
       currency: { type: String, default: "VND" },
     },

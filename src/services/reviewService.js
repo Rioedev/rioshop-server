@@ -1,7 +1,12 @@
 import Review from "../models/Review.js";
 import Product from "../models/Product.js";
+import Order from "../models/Order.js";
 import notificationService from "./notificationService.js";
 import { AppError } from "../utils/helpers.js";
+
+// Người dùng chỉ được review sau khi đã NHẬN hàng (đơn ở các trạng thái này).
+// Đơn cancelled/returned/shipping... không tính.
+const REVIEW_ELIGIBLE_ORDER_STATUSES = ["delivered", "completed"];
 
 export class ReviewService {
   async getReviews(options = {}) {
@@ -96,7 +101,43 @@ export class ReviewService {
 
   async createReview(userId, data, isAdmin = false) {
     try {
-      const normalizedOrderId = data.orderId ? data.orderId : null;
+      let normalizedOrderId = data.orderId ? data.orderId : null;
+      let resolvedPurchasedAt = data.purchasedAt || null;
+      let resolvedVariantSku = data.variantSku || "";
+
+      // Enforce "đã mua mới được review" cho khách thường.
+      // Admin được bypass để tạo review test/seed nếu cần.
+      if (!isAdmin) {
+        const orderQuery = {
+          userId,
+          status: { $in: REVIEW_ELIGIBLE_ORDER_STATUSES },
+          "items.productId": data.productId,
+        };
+        if (normalizedOrderId) orderQuery._id = normalizedOrderId;
+
+        const order = await Order.findOne(orderQuery).sort({ createdAt: -1 });
+        if (!order) {
+          throw new AppError(
+            "Bạn cần mua và nhận sản phẩm trước khi đánh giá",
+            403,
+          );
+        }
+
+        normalizedOrderId = order._id;
+        if (!resolvedPurchasedAt) {
+          const deliveredEvent = (order.timeline || []).find(
+            (event) => event?.status === "delivered",
+          );
+          resolvedPurchasedAt = deliveredEvent?.at || order.updatedAt;
+        }
+        if (!resolvedVariantSku) {
+          const matchedItem = (order.items || []).find(
+            (item) => item.productId?.toString() === data.productId?.toString(),
+          );
+          if (matchedItem) resolvedVariantSku = matchedItem.variantSku;
+        }
+      }
+
       const existing = normalizedOrderId
         ? await Review.findOne({
           userId,
@@ -117,6 +158,8 @@ export class ReviewService {
         ...data,
         userId,
         orderId: normalizedOrderId || undefined,
+        variantSku: resolvedVariantSku || data.variantSku,
+        purchasedAt: resolvedPurchasedAt || data.purchasedAt,
         status:
           isAdmin && ["pending", "approved", "rejected"].includes(data.status)
             ? data.status

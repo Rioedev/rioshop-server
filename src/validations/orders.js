@@ -53,7 +53,17 @@ export const createOrderValidation = Joi.object({
       )
       .min(1)
       .required(),
-    shippingAddress: Joi.object().unknown(true).required(),
+    shippingAddress: Joi.object({
+      line1: Joi.string().trim().required(),
+      wardCode: Joi.string().trim().allow("").optional(),
+      wardName: Joi.string().trim().allow("").optional(),
+      districtId: Joi.number().integer().min(0).optional(),
+      districtName: Joi.string().trim().allow("").optional(),
+      provinceId: Joi.number().integer().min(0).optional(),
+      provinceName: Joi.string().trim().allow("").optional(),
+      city: Joi.string().trim().allow("").optional(),
+      country: Joi.string().trim().allow("").optional(),
+    }).required(),
     shippingFee: Joi.number().min(0).optional(),
     pricing: Joi.object({
       shippingFee: Joi.number().min(0).optional(),

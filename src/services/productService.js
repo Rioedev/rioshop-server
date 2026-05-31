@@ -39,14 +39,16 @@ export class ProductService {
         ? Number(pricing.salePrice)
         : Number(existingPricing.salePrice);
 
-    if (!Number.isFinite(basePriceInput) || !Number.isFinite(salePriceInput)) {
-      throw new AppError("Product pricing is invalid", 400);
+    if (!Number.isFinite(salePriceInput)) {
+      throw new AppError("Product sale price is required", 400);
     }
 
-    const basePrice = Math.max(0, basePriceInput);
     const salePrice = Math.max(0, salePriceInput);
-    if (salePrice > basePrice) {
-      throw new AppError("Sale price must be less than or equal to base price", 400);
+    // basePrice giờ là tùy chọn (= giá niêm yết để gạch ngang). Nếu không nhập / = 0
+    // → không hiển thị gạch ngang. Nếu nhập thì phải >= salePrice.
+    const basePrice = Number.isFinite(basePriceInput) ? Math.max(0, basePriceInput) : 0;
+    if (basePrice > 0 && basePrice < salePrice) {
+      throw new AppError("Base price (giá niêm yết) phải lớn hơn hoặc bằng giá bán", 400);
     }
 
     const currency =

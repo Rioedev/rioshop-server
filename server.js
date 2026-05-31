@@ -39,6 +39,7 @@ import brandConfigRoutes from "./src/routes/brandConfigs.js";
 import blogRoutes from "./src/routes/blogs.js";
 import aiRecommendationRoutes from "./src/routes/aiRecommendations.js";
 import policyRoutes from "./src/routes/policies.js";
+import reportRoutes from "./src/routes/reports.js";
 import orderLifecycleAutomationService from "./src/services/orderLifecycleAutomationService.js";
 import shipmentLifecycleAutomationService from "./src/services/shipmentLifecycleAutomationService.js";
 import notificationLifecycleAutomationService from "./src/services/notificationLifecycleAutomationService.js";
@@ -135,6 +136,7 @@ app.use("/api/brand-configs", brandConfigRoutes);
 app.use("/api/blogs", blogRoutes);
 app.use("/api/ai", aiRecommendationRoutes);
 app.use("/api/policies", policyRoutes);
+app.use("/api/reports", reportRoutes);
 
 // Health check endpoint
 app.get("/health", (req, res) => {

@@ -13,6 +13,11 @@ const orderItemSchema = new mongoose.Schema(
     variantLabel: { type: String, required: true },
     image: { type: String, required: true },
     unitPrice: { type: Number, required: true },
+    // listPrice = giá niêm yết tại thời điểm đặt (để dựng lại "giảm bao nhiêu")
+    listPrice: { type: Number, default: 0 },
+    // priceSource = "regular" | "flash_sale" — đơn này áp giá gì
+    priceSource: { type: String, enum: ["regular", "flash_sale"], default: "regular" },
+    flashSaleId: { type: mongoose.Schema.Types.ObjectId, ref: "FlashSale", default: null },
     quantity: { type: Number, required: true },
     totalPrice: { type: Number, required: true },
     returnedQty: { type: Number, default: 0 },
@@ -66,6 +71,23 @@ const pricingSchema = new mongoose.Schema(
   { _id: false },
 );
 
+// Tên / SĐT người nhận đã ở customerSnapshot. Sub-schema này chỉ phần địa chỉ
+// dùng cho đối soát đơn + tích hợp GHN. Các field *Id/*Code là khóa của GHN.
+const shippingAddressSchema = new mongoose.Schema(
+  {
+    line1: { type: String, required: true, trim: true },
+    wardCode: { type: String, default: "" },
+    wardName: { type: String, default: "" },
+    districtId: { type: Number, default: 0 },
+    districtName: { type: String, default: "" },
+    provinceId: { type: Number, default: 0 },
+    provinceName: { type: String, default: "" },
+    city: { type: String, default: "" },
+    country: { type: String, default: "Vietnam" },
+  },
+  { _id: false },
+);
+
 const orderSchema = new mongoose.Schema({
   orderNumber: { type: String, required: true, unique: true },
   userId: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
@@ -75,7 +97,7 @@ const orderSchema = new mongoose.Schema({
     phone: String,
   },
   items: [orderItemSchema],
-  shippingAddress: mongoose.Schema.Types.Mixed,
+  shippingAddress: { type: shippingAddressSchema, required: true },
   pricing: pricingSchema,
   couponCode: String,
   couponDiscount: Number,

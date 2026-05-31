@@ -4,6 +4,7 @@ import Product from "../models/Product.js";
 import Inventory from "../models/Inventory.js";
 import Shipment from "../models/Shipment.js";
 import couponService from "./couponService.js";
+import pricingService from "./pricingService.js";
 import emailService from "./emailService.js";
 import notificationService from "./notificationService.js";
 import loyaltyService from "./loyaltyService.js";
@@ -348,6 +349,7 @@ export class OrderService {
     }
 
     const createdOrder = await this.getOrderById(createdOrderId, null);
+    await this.reserveFlashSlotsForOrder(createdOrder);
     void emailService.sendOrderConfirmation(createdOrder);
     void notificationService.notifyOrderCreated(createdOrder);
     this.emitOrderRealtimeUpdate(createdOrder, {
@@ -359,6 +361,51 @@ export class OrderService {
       source: "create_order",
     });
     return createdOrder;
+  }
+
+  async reserveFlashSlotsForOrder(order) {
+    const items = (order?.items || []).filter(
+      (item) => item.priceSource === "flash_sale" && item.flashSaleId,
+    );
+    if (items.length === 0) return;
+    await Promise.all(
+      items.map((item) =>
+        pricingService
+          .reserveFlashSlot(item.flashSaleId, item.productId, item.variantSku, item.quantity)
+          .catch((error) => {
+            // không throw — đơn đã commit, ghi log để admin biết slot có thể bị quá
+            console.error("[flash sale] reserve failed", {
+              orderId: order._id?.toString(),
+              flashSaleId: item.flashSaleId?.toString(),
+              variantSku: item.variantSku,
+              error: error?.message,
+            });
+            return null;
+          }),
+      ),
+    );
+  }
+
+  async releaseFlashSlotsForOrder(order) {
+    const items = (order?.items || []).filter(
+      (item) => item.priceSource === "flash_sale" && item.flashSaleId,
+    );
+    if (items.length === 0) return;
+    await Promise.all(
+      items.map((item) =>
+        pricingService
+          .releaseFlashSlot(item.flashSaleId, item.productId, item.variantSku, item.quantity)
+          .catch((error) => {
+            console.error("[flash sale] release failed", {
+              orderId: order._id?.toString(),
+              flashSaleId: item.flashSaleId?.toString(),
+              variantSku: item.variantSku,
+              error: error?.message,
+            });
+            return null;
+          }),
+      ),
+    );
   }
 
   async updateOrderStatus(orderId, status, payload = {}) {
@@ -553,6 +600,7 @@ export class OrderService {
     }
 
     const cancelledOrder = await this.getOrderById(cancelledOrderId, userId || null);
+    await this.releaseFlashSlotsForOrder(cancelledOrder);
     if (previousStatus && previousStatus !== cancelledOrder?.status) {
       void emailService.sendOrderStatusUpdate(cancelledOrder, previousStatus);
       void notificationService.notifyOrderStatusChanged(cancelledOrder, previousStatus);
@@ -1221,10 +1269,8 @@ export class OrderService {
         throw new AppError(`Variant ${variant.sku} is inactive`, 400);
       }
 
-      const unitPrice = Math.max(
-        0,
-        Number(product.pricing?.salePrice || 0) + Number(variant.additionalPrice || 0),
-      );
+      const priced = await pricingService.resolveEffectivePrice(product, variant);
+      const unitPrice = priced.unitPrice;
       const key = `${product._id.toString()}::${variant.sku}`;
       const fallbackImage =
         variant.images?.[0] ||
@@ -1248,6 +1294,9 @@ export class OrderService {
         variantLabel,
         image: fallbackImage,
         unitPrice,
+        listPrice: priced.listPrice,
+        priceSource: priced.priceSource,
+        flashSaleId: priced.flashSaleId,
         quantity: item.quantity,
         totalPrice: unitPrice * item.quantity,
         returnedQty: Number(item.returnedQty || 0),
