@@ -78,10 +78,7 @@ const normalizeProductPricingForRead = (product) => {
     0,
     pickLegacyAwarePrice(pricing.regularPrice, pricing.salePrice, 0),
   );
-  const compareAtPrice = Math.max(
-    0,
-    pickLegacyAwarePrice(pricing.compareAtPrice, pricing.basePrice, 0),
-  );
+  const compareAtPrice = 0;
 
   return {
     ...product,
@@ -116,37 +113,19 @@ export class ProductService {
       existingPricing?.regularPrice,
       existingPricing?.salePrice,
     );
-    const existingCompareAtPrice = pickLegacyAwarePrice(
-      existingPricing?.compareAtPrice,
-      existingPricing?.basePrice,
-      0,
-    );
     const regularPriceInput =
       pricing?.regularPrice !== undefined
         ? Number(pricing.regularPrice)
         : pricing?.salePrice !== undefined
           ? Number(pricing.salePrice)
           : existingRegularPrice;
-    const compareAtPriceInput =
-      pricing?.compareAtPrice !== undefined
-        ? Number(pricing.compareAtPrice)
-        : pricing?.basePrice !== undefined
-          ? Number(pricing.basePrice)
-          : existingCompareAtPrice;
 
     if (!Number.isFinite(regularPriceInput)) {
       throw new AppError("Regular price is required", 400);
     }
 
     const regularPrice = Math.max(0, regularPriceInput);
-    // compareAtPrice là giá tham chiếu/MSRP/giá niêm yết để so sánh. Nếu không nhập
-    // hoặc = 0 thì storefront không hiển thị giá gạch ngang.
-    const compareAtPrice = Number.isFinite(compareAtPriceInput)
-      ? Math.max(0, compareAtPriceInput)
-      : 0;
-    if (compareAtPrice > 0 && compareAtPrice < regularPrice) {
-      throw new AppError("Compare-at price must be greater than or equal to regular price", 400);
-    }
+    const compareAtPrice = 0;
 
     const currency =
       pricing?.currency?.toString().trim() ||

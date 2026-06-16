@@ -8,11 +8,9 @@ import FlashSale from "../models/FlashSale.js";
 //   - Giá thường (regular)  = product.pricing.regularPrice + variant.additionalPrice
 //   - Nếu có FlashSale slot đang active (now nằm trong [startsAt, endsAt],
 //     isActive, sold < stockLimit) khớp (productId, variantSku)
-//     → giá = slot.salePrice + variant.additionalPrice (priceSource = "flash_sale")
-//   - listPrice = giá tham chiếu để hiển thị gạch ngang
-//       + Ưu tiên compareAtPrice nếu admin có set và > effective unitPrice
-//       + Nếu đang flash sale mà admin chưa set compareAtPrice → dùng regularPrice thường
-//         làm listPrice (vì giá flash đang rẻ hơn → cần gạch ngang giá thường)
+//     → giá = slot.salePrice (giá chốt Flash Sale, không cộng phụ giá biến thể)
+//   - listPrice chỉ dùng để gạch ngang khi có Flash Sale.
+//     Sản phẩm thường không có giá tham chiếu/gạch ngang để tránh gây hiểu lầm.
 //
 // Hàm này nhận sẵn product + variant (không tự query) để không bị N+1
 // khi cart/order resolve nhiều dòng cùng lúc.
@@ -80,19 +78,13 @@ class PricingService {
     );
     const variantAdd = Number(variant?.additionalPrice || 0);
     const regularUnit = Math.max(0, regularBase + variantAdd);
-    const declaredListPrice = pickLegacyAwarePrice(
-      product?.pricing?.compareAtPrice,
-      product?.pricing?.basePrice,
-    );
     const slot = flashSale
       ? this.findMatchingSlot(flashSale.slots, product?._id, variant?.sku)
       : null;
 
     if (slot) {
-      const flashUnit = Math.max(0, Number(slot.salePrice || 0) + variantAdd);
-      const listPrice = declaredListPrice > flashUnit
-        ? declaredListPrice
-        : Math.max(flashUnit, regularUnit);
+      const flashUnit = Math.max(0, Number(slot.salePrice || 0));
+      const listPrice = Math.max(flashUnit, regularUnit);
 
       return {
         unitPrice: flashUnit,
@@ -104,10 +96,9 @@ class PricingService {
       };
     }
 
-    const listPrice = declaredListPrice > regularUnit ? declaredListPrice : regularUnit;
     return {
       unitPrice: regularUnit,
-      listPrice,
+      listPrice: regularUnit,
       priceSource: "regular",
       flashSaleId: null,
       flashSaleName: null,

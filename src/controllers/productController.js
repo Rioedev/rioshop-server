@@ -47,8 +47,6 @@ const pickLegacyAwarePrice = (canonical, legacy) => {
 };
 const getRegularPrice = (pricing = {}) =>
   pickLegacyAwarePrice(pricing.regularPrice, pricing.salePrice);
-const getCompareAtPrice = (pricing = {}) =>
-  pickLegacyAwarePrice(pricing.compareAtPrice, pricing.basePrice);
 
 const EXPORT_COLUMNS = [
   { key: "productSku", header: "productSku", width: 24 },
@@ -63,7 +61,6 @@ const EXPORT_COLUMNS = [
   { key: "collectionNames", header: "collectionNames", width: 26 },
   { key: "collectionSlugs", header: "collectionSlugs", width: 26 },
   { key: "regularPrice", header: "regularPrice", width: 14, style: { numFmt: "#,##0" } },
-  { key: "compareAtPrice", header: "compareAtPrice", width: 16, style: { numFmt: "#,##0" } },
   { key: "gender", header: "gender", width: 10 },
   { key: "ageGroup", header: "ageGroup", width: 10 },
   { key: "material", header: "material", width: 22 },
@@ -95,7 +92,7 @@ const COLUMN_GUIDE = [
   ["categoryId", "B\u1EAFt bu\u1ED9c. C\u00F3 th\u1EC3 \u0111i\u1EC1n ObjectId c\u1EE7a category ho\u1EB7c categorySlug."],
   ["categoryName / categorySlug", "Ch\u1EC9 \u0111\u1EC3 tham kh\u1EA3o khi xu\u1EA5t, h\u1EC7 th\u1ED1ng kh\u00F4ng \u0111\u1ECDc khi nh\u1EADp."],
   ["collectionIds", "T\u00F9y ch\u1ECDn. ObjectId ho\u1EB7c slug, nhi\u1EC1u gi\u00E1 tr\u1ECB c\u00E1ch nhau b\u1EB1ng d\u1EA5u |"],
-  ["regularPrice / compareAtPrice", "regularPrice l\u00E0 gi\u00E1 b\u00E1n th\u01B0\u1EDDng ng\u00E0y. compareAtPrice l\u00E0 gi\u00E1 tham chi\u1EBFu/ni\u00EAm y\u1EBFt, t\u00F9y ch\u1ECDn v\u00E0 ph\u1EA3i >= regularPrice n\u1EBFu c\u00F3 nh\u1EADp."],
+  ["regularPrice", "Gi\u00E1 b\u00E1n th\u01B0\u1EDDng ng\u00E0y. Gi\u00E1 g\u1EA1ch ngang ch\u1EC9 xu\u1EA5t hi\u1EC7n khi s\u1EA3n ph\u1EA9m tham gia Flash Sale."],
   ["gender", "men | women | unisex | kids."],
   ["ageGroup", "adult | teen | kids | baby."],
   ["material / care / seoKeywords", "Nhi\u1EC1u gi\u00E1 tr\u1ECB c\u00E1ch nhau b\u1EB1ng d\u1EA5u |"],
@@ -435,6 +432,14 @@ const normalizeSort = (sortRaw) => {
   return parsedSort;
 };
 
+const attachEffectivePricingToProducts = async (products = []) =>
+  Promise.all((products || []).map((product) => pricingService.attachEffectivePricing(product)));
+
+const attachEffectivePricingToPaginatedProducts = async (result) => ({
+  ...result,
+  docs: await attachEffectivePricingToProducts(result?.docs || []),
+});
+
 export const getAllProducts = asyncHandler(async (req, res) => {
   const { page, limit } = getPaginationParams(req.query.page, req.query.limit);
   const filters = await normalizeQueryFilters(req.query);
@@ -463,7 +468,8 @@ export const getAllProducts = asyncHandler(async (req, res) => {
           sort: parsedSort,
         });
 
-  sendSuccess(res, 200, products, "Products fetched successfully");
+  const pricedProducts = await attachEffectivePricingToPaginatedProducts(products);
+  sendSuccess(res, 200, pricedProducts, "Products fetched successfully");
 });
 
 const XLSX_CONTENT_TYPE =
@@ -524,7 +530,6 @@ export const exportProductsXlsx = asyncHandler(async (req, res) => {
           .filter(Boolean)
           .join("|"),
         regularPrice: getRegularPrice(product.pricing),
-        compareAtPrice: getCompareAtPrice(product.pricing),
         gender: product.gender ?? "",
         ageGroup: product.ageGroup ?? "",
         material: (product.material ?? []).filter(Boolean).join("|"),
@@ -569,7 +574,6 @@ export const downloadProductsImportTemplateXlsx = asyncHandler(async (_req, res)
       collectionNames: "",
       collectionSlugs: "",
       regularPrice: 199000,
-      compareAtPrice: 299000,
       gender: "men",
       ageGroup: "adult",
       material: "Cotton|Spandex",
@@ -604,7 +608,6 @@ export const downloadProductsImportTemplateXlsx = asyncHandler(async (_req, res)
       collectionNames: "",
       collectionSlugs: "",
       regularPrice: 199000,
-      compareAtPrice: 299000,
       gender: "men",
       ageGroup: "adult",
       material: "Cotton|Spandex",
@@ -689,7 +692,6 @@ export const importProductsXlsx = asyncHandler(async (req, res) => {
         categoryToken: "",
         collectionTokens: new Set(),
         regularPriceRaw: "",
-        compareAtPriceRaw: "",
         gender: "",
         ageGroup: "",
         materialRaw: "",
@@ -709,7 +711,6 @@ export const importProductsXlsx = asyncHandler(async (req, res) => {
     group.categoryToken ||=
       getRowValue(row, ["categoryId", "categorySlug", "category"]);
     group.regularPriceRaw ||= getRowValue(row, ["regularPrice", "salePrice"]);
-    group.compareAtPriceRaw ||= getRowValue(row, ["compareAtPrice", "basePrice"]);
     group.gender ||= getRowValue(row, ["gender"]);
     group.ageGroup ||= getRowValue(row, ["ageGroup"]);
     group.materialRaw ||= getRowValue(row, ["material"]);
@@ -843,12 +844,8 @@ export const importProductsXlsx = asyncHandler(async (req, res) => {
       }
 
       const regularPrice = toSafeNumber(group.regularPriceRaw, NaN);
-      const compareAtPrice = toSafeNumber(group.compareAtPriceRaw, 0);
       if (!Number.isFinite(regularPrice)) {
         throw new Error("Invalid regularPrice");
-      }
-      if (compareAtPrice > 0 && compareAtPrice < regularPrice) {
-        throw new Error("compareAtPrice must be greater than or equal to regularPrice");
       }
 
       const collectionRefs = [];
@@ -925,7 +922,7 @@ export const importProductsXlsx = asyncHandler(async (req, res) => {
         collections: collectionRefs,
         pricing: {
           regularPrice,
-          compareAtPrice,
+          compareAtPrice: 0,
           currency: "VND",
         },
         status: PRODUCT_STATUS_SET.has(group.status) ? group.status : "draft",
@@ -1018,7 +1015,8 @@ export const searchProducts = asyncHandler(async (req, res) => {
     },
   );
 
-  sendSuccess(res, 200, products, "Products searched successfully");
+  const pricedProducts = await attachEffectivePricingToPaginatedProducts(products);
+  sendSuccess(res, 200, pricedProducts, "Products searched successfully");
 });
 
 export const createProduct = asyncHandler(async (req, res) => {
@@ -1076,7 +1074,8 @@ export const getRelatedProducts = asyncHandler(async (req, res) => {
     req.params.id,
     6,
   );
-  sendSuccess(res, 200, relatedProducts, "Related products fetched");
+  const pricedProducts = await attachEffectivePricingToProducts(relatedProducts);
+  sendSuccess(res, 200, pricedProducts, "Related products fetched");
 });
 
 export const getCartRecommendations = asyncHandler(async (req, res) => {
@@ -1084,5 +1083,11 @@ export const getCartRecommendations = asyncHandler(async (req, res) => {
     req.body.productIds,
     req.body.limit,
   );
-  sendSuccess(res, 200, recommendations, "Cart recommendations fetched");
+  const pricedRecommendations = await Promise.all(
+    (recommendations || []).map(async (recommendation) => ({
+      ...recommendation,
+      product: await pricingService.attachEffectivePricing(recommendation.product),
+    })),
+  );
+  sendSuccess(res, 200, pricedRecommendations, "Cart recommendations fetched");
 });
