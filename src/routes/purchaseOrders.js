@@ -3,6 +3,8 @@ import { authenticateToken, authorizeRole } from "../middlewares/auth.js";
 import {
   listPurchaseOrders,
   getPurchaseOrder,
+  exportPurchaseOrdersXlsx,
+  exportPurchaseOrderDetailXlsx,
   createPurchaseOrder,
   updatePurchaseOrder,
   confirmPurchaseOrder,
@@ -17,6 +19,8 @@ router.use(authenticateToken);
 router.use(authorizeRole("superadmin", "manager", "warehouse"));
 
 router.get("/", listPurchaseOrders);
+router.get("/export-xlsx", exportPurchaseOrdersXlsx);
+router.get("/:id/export-xlsx", exportPurchaseOrderDetailXlsx);
 router.get("/:id", getPurchaseOrder);
 router.post("/", createPurchaseOrder);
 router.put("/:id", updatePurchaseOrder);

@@ -132,7 +132,7 @@ const USE_CASE_INTENTS = [
     key: "work",
     label: "đi làm",
     terms: ["di lam", "cong so", "van phong", "office", "lich su", "lich su"],
-    productTerms: ["so mi", "polo", "quan au", "daily pant", "basic"],
+    productTerms: ["so mi", "shirt", "polo", "quan au", "daily pant", "co nep", "co duc", "co be", "cong so", "van phong"],
   },
   {
     key: "summer",
@@ -158,6 +158,21 @@ const USE_CASE_INTENTS = [
     terms: ["the thao", "tap gym", "tap luyen", "chay bo", "sport"],
     productTerms: ["the thao", "sport", "ni", "co gian"],
   },
+];
+
+const WORK_USE_CASE_INCOMPATIBLE_TERMS = [
+  "ao ba lo",
+  "ba lo",
+  "tank",
+  "tanktop",
+  "tank top",
+  "sat nach",
+  "hai day",
+  "croptop",
+  "crop top",
+  "bra",
+  "gym",
+  "tap gym",
 ];
 
 const GENDER_INTENTS = [
@@ -472,6 +487,17 @@ const productMatchesIntentTerms = (searchableText, intentConfig) =>
   intentConfig?.productTerms?.some((term) => includesTerm(searchableText, term)) ||
   intentConfig?.terms?.some((term) => includesTerm(searchableText, term));
 
+const productIsIncompatibleWithUseCases = (searchableText, useCases = []) => {
+  const hasWorkUseCase = useCases.some((useCase) => useCase.key === "work");
+  if (!hasWorkUseCase) {
+    return false;
+  }
+
+  return WORK_USE_CASE_INCOMPATIBLE_TERMS.some((term) =>
+    includesTerm(searchableText, term),
+  );
+};
+
 const addSignal = (signals, value) => {
   if (value && !signals.includes(value)) {
     signals.push(value);
@@ -521,6 +547,10 @@ export const rankRecommendationCandidates = (products = [], intent = {}) => {
   const ranked = products.map((product) => {
     const searchableText = toSearchableProductText(product);
     const categorySearchableText = toCategorySearchableProductText(product);
+    const useCaseIncompatible = productIsIncompatibleWithUseCases(
+      searchableText,
+      intent.useCases,
+    );
     const signals = [];
     let categoryMatched = false;
     let score = 20;
@@ -603,11 +633,13 @@ export const rankRecommendationCandidates = (products = [], intent = {}) => {
       matchedSignals: signals.slice(0, 6),
       reason: buildRecommendationReason(product, intent, signals),
       categoryMatched,
+      useCaseIncompatible,
     };
   });
 
   return ranked
     .filter((item) => Number(item.product.inventorySummary?.available || 0) > 0)
+    .filter((item) => !item.useCaseIncompatible)
     .filter((item) => !hasExplicitCategoryIntent || item.categoryMatched)
     .sort((a, b) => b.score - a.score || Number(b.product.totalSold || 0) - Number(a.product.totalSold || 0));
 };
@@ -721,6 +753,19 @@ const buildProductQuery = (intent, context = {}, mode = "strict") => {
   }
   if (context.collectionId) {
     query["collections._id"] = context.collectionId;
+  }
+
+  if ((intent.useCases ?? []).some((useCase) => useCase.key === "work")) {
+    const incompatibleRegex = toRegex(WORK_USE_CASE_INCOMPATIBLE_TERMS);
+    if (incompatibleRegex) {
+      query.$nor = [
+        { name: incompatibleRegex },
+        { "category.name": incompatibleRegex },
+        { "category.slug": incompatibleRegex },
+        { tags: incompatibleRegex },
+        { shortDescription: incompatibleRegex },
+      ];
+    }
   }
 
   if (intent.gender?.value && mode !== "fallback") {
