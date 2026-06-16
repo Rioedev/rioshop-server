@@ -16,6 +16,8 @@ const variantSchema = new mongoose.Schema(
     },
     sizeLabel: String,
     stock: { type: Number, default: 0, min: 0 },
+    // Số lượng đã đặt PO nhưng CHƯA về kho. Tăng khi PO confirm, giảm khi receive.
+    incoming: { type: Number, default: 0, min: 0 },
     additionalPrice: { type: Number, default: 0 },
     barcode: String,
     images: [String],
@@ -82,16 +84,26 @@ const productSchema = new mongoose.Schema(
         {
           size: String,
           chest: Number,
+          waist: Number,
+          hip: Number,
           length: Number,
           shoulder: Number,
         },
       ],
     },
-    // pricing.salePrice = giá bán thực tế (required)
-    // pricing.basePrice = giá niêm yết để hiển thị gạch ngang (optional, chỉ set khi muốn show giảm giá)
+    // pricing.regularPrice = giá bán thường ngày của sản phẩm (required về mặt nghiệp vụ)
+    // pricing.compareAtPrice = giá tham chiếu/niêm yết/MSRP để so sánh khi có giảm giá (optional)
+    // pricing.salePrice/basePrice = alias legacy, giữ để dữ liệu cũ và client cũ không bị gãy.
+    // pricing.costPrice = giá vốn TRUNG BÌNH TRỌNG SỐ ở cấp PRODUCT (mọi variant
+    //   dùng chung 1 giá vốn). Cập nhật khi nhận hàng từ PO theo công thức
+    //   (oldTotalStock × oldCost + Σ qty_i × cost_i) / (oldTotalStock + Σ qty_i).
+    //   Admin KHÔNG sửa được trực tiếp.
     pricing: {
-      basePrice: { type: Number, default: 0 },
-      salePrice: { type: Number, required: true },
+      regularPrice: { type: Number, default: 0 },
+      compareAtPrice: { type: Number, default: 0 },
+      salePrice: { type: Number, default: undefined },
+      basePrice: { type: Number, default: undefined },
+      costPrice: { type: Number, default: 0 },
       currency: { type: String, default: "VND" },
     },
     inventorySummary: {
@@ -146,6 +158,49 @@ const productSchema = new mongoose.Schema(
 
 productSchema.plugin(mongoosePaginate);
 
+const pickLegacyAwarePrice = (canonical, legacy) => {
+  const canonicalNumber = Number(canonical);
+  const legacyNumber = Number(legacy);
+
+  if (Number.isFinite(canonicalNumber) && canonicalNumber > 0) {
+    return Math.max(0, canonicalNumber);
+  }
+  if (Number.isFinite(legacyNumber) && legacyNumber > 0) {
+    return Math.max(0, legacyNumber);
+  }
+  if (Number.isFinite(canonicalNumber)) {
+    return Math.max(0, canonicalNumber);
+  }
+  if (Number.isFinite(legacyNumber)) {
+    return Math.max(0, legacyNumber);
+  }
+  return 0;
+};
+
+const normalizePricingSemantics = (doc) => {
+  if (!doc) return;
+  const pricing = doc.pricing || {};
+  const regularPrice = pickLegacyAwarePrice(pricing.regularPrice, pricing.salePrice);
+  const compareAtPrice = pickLegacyAwarePrice(pricing.compareAtPrice, pricing.basePrice);
+
+  doc.pricing = {
+    ...pricing,
+    regularPrice,
+    compareAtPrice,
+    // Legacy aliases. Remove after a data migration and client cleanup.
+    salePrice: regularPrice,
+    basePrice: compareAtPrice,
+  };
+};
+
+productSchema.pre("validate", function normalizePricingForValidation() {
+  normalizePricingSemantics(this);
+});
+
+productSchema.post("init", function normalizePricingForLegacyReads(doc) {
+  normalizePricingSemantics(doc);
+});
+
 productSchema.pre("save", function synchronizeInventorySummary() {
   const variants = Array.isArray(this.variants) ? this.variants : [];
   const available = variants.reduce(
@@ -192,8 +247,10 @@ productSchema.index({ "ratings.avg": -1, totalSold: -1 });
 productSchema.index({ tags: 1 });
 productSchema.index({ name: "text", description: "text" });
 productSchema.index({ gender: 1, status: 1 });
+productSchema.index({ "pricing.regularPrice": 1 });
 productSchema.index({ "pricing.salePrice": 1 });
 productSchema.index({ createdAt: -1 });
+productSchema.index({ status: 1, publishedAt: -1 });
 productSchema.index({ deletedAt: 1 });
 
 export default mongoose.model("Product", productSchema);

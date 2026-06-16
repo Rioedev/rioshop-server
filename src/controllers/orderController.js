@@ -89,6 +89,9 @@ export const updateReturnRequestStatus = asyncHandler(async (req, res) => {
 
   const order = await orderService.updateReturnRequestStatus(req.params.id, req.body.status, {
     note: req.body.note,
+    exchangeItems: req.body.exchangeItems,
+    updatedByAdminId: req.user.adminId,
+    updatedByAdminName: req.user.fullName || req.user.email || "",
     updatedBy: "admin",
   });
 

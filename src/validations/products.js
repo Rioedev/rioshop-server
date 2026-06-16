@@ -56,41 +56,73 @@ const productVariantValidation = Joi.object({
   position: Joi.number().integer().min(0),
 });
 
-// basePrice (giá niêm yết để hiển thị gạch ngang) là TÙY CHỌN.
-// Chỉ check ràng buộc basePrice >= salePrice khi admin có nhập.
+const sizeChartValidation = Joi.object({
+  unit: Joi.string().trim().valid("cm").default("cm"),
+  rows: Joi.array()
+    .items(
+      Joi.object({
+        size: Joi.string().trim().required(),
+        shoulder: Joi.number().min(0).allow(null),
+        chest: Joi.number().min(0).allow(null),
+        waist: Joi.number().min(0).allow(null),
+        hip: Joi.number().min(0).allow(null),
+        length: Joi.number().min(0).allow(null),
+      }),
+    )
+    .max(40)
+    .default([]),
+});
+
+const resolveRegularPrice = (value = {}) => value.regularPrice ?? value.salePrice;
+const resolveCompareAtPrice = (value = {}) => value.compareAtPrice ?? value.basePrice;
+
+// regularPrice là giá bán thường ngày. compareAtPrice là giá tham chiếu/niêm yết
+// để so sánh khi có giảm giá. salePrice/basePrice chỉ là alias legacy.
 const createPricingValidation = Joi.object({
+  regularPrice: Joi.number().min(0).optional(),
+  compareAtPrice: Joi.number().min(0).optional(),
   basePrice: Joi.number().min(0).optional(),
-  salePrice: Joi.number().min(0).required(),
+  salePrice: Joi.number().min(0).optional(),
 })
   .custom((value, helpers) => {
-    const base = Number(value.basePrice);
-    const sale = Number(value.salePrice);
-    if (Number.isFinite(base) && base > 0 && base < sale) {
+    const regular = Number(resolveRegularPrice(value));
+    if (!Number.isFinite(regular)) {
+      return helpers.error("any.required");
+    }
+
+    const compareAt = Number(resolveCompareAtPrice(value));
+    if (Number.isFinite(compareAt) && compareAt > 0 && compareAt < regular) {
       return helpers.error("any.invalid");
     }
     return value;
   })
   .messages({
-    "any.invalid": "Giá niêm yết phải lớn hơn hoặc bằng giá bán",
+    "any.required": "Giá bán thường ngày là bắt buộc",
+    "any.invalid": "Giá tham chiếu phải lớn hơn hoặc bằng giá bán thường ngày",
   });
 
 const updatePricingValidation = Joi.object({
+  regularPrice: Joi.number().min(0),
+  compareAtPrice: Joi.number().min(0),
   basePrice: Joi.number().min(0),
   salePrice: Joi.number().min(0),
 })
   .custom((value, helpers) => {
-    if (
-      value.basePrice !== undefined &&
-      value.salePrice !== undefined &&
-      Number(value.basePrice) > 0 &&
-      Number(value.basePrice) < Number(value.salePrice)
-    ) {
+    const regularRaw = resolveRegularPrice(value);
+    const compareAtRaw = resolveCompareAtPrice(value);
+    if (regularRaw === undefined || compareAtRaw === undefined) {
+      return value;
+    }
+
+    const regular = Number(regularRaw);
+    const compareAt = Number(compareAtRaw);
+    if (Number.isFinite(compareAt) && compareAt > 0 && Number.isFinite(regular) && compareAt < regular) {
       return helpers.error("any.invalid");
     }
     return value;
   })
   .messages({
-    "any.invalid": "Giá niêm yết phải lớn hơn hoặc bằng giá bán",
+    "any.invalid": "Giá tham chiếu phải lớn hơn hoặc bằng giá bán thường ngày",
   });
 
 export const createProductValidation = Joi.object({
@@ -107,6 +139,7 @@ export const createProductValidation = Joi.object({
     inventorySummary: inventorySummaryValidation,
     variants: Joi.array().items(productVariantValidation).min(1).required(),
     media: Joi.array().items(productMediaValidation).optional(),
+    sizeChart: sizeChartValidation.optional(),
     status: statusValidation,
     tags: Joi.array().items(Joi.string().trim()),
     gender: Joi.string().valid("men", "women", "unisex", "kids"),
@@ -138,6 +171,7 @@ export const updateProductValidation = Joi.object({
     inventorySummary: inventorySummaryValidation,
     variants: Joi.array().items(productVariantValidation).min(1),
     media: Joi.array().items(productMediaValidation),
+    sizeChart: sizeChartValidation,
     status: statusValidation,
     tags: Joi.array().items(Joi.string().trim()),
     gender: Joi.string().valid("men", "women", "unisex", "kids"),
@@ -171,6 +205,8 @@ export const paginationValidation = Joi.object({
     size: Joi.string().trim().max(240).optional(),
     sort: Joi.string().optional(),
     status: Joi.string().valid("all", "draft", "active", "archived", "out_of_stock").optional(),
+    ranking: Joi.string().valid("best_selling").optional(),
+    newWithinDays: Joi.number().integer().min(1).max(365).optional(),
   }),
 });
 
@@ -198,5 +234,16 @@ export const productSlugValidation = Joi.object({
 export const relatedProductsValidation = Joi.object({
   params: Joi.object({
     id: Joi.string().pattern(/^[0-9a-fA-F]{24}$/).required(),
+  }).required(),
+});
+
+export const cartRecommendationsValidation = Joi.object({
+  body: Joi.object({
+    productIds: Joi.array()
+      .items(Joi.string().pattern(/^[0-9a-fA-F]{24}$/))
+      .min(1)
+      .max(30)
+      .required(),
+    limit: Joi.number().integer().min(1).max(12).default(4),
   }).required(),
 });

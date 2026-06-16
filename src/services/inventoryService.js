@@ -373,6 +373,62 @@ export class InventoryService {
     product.updatedAt = new Date();
     await product.save();
   }
+
+  // Đồng bộ Inventory collection từ Product.variants — gọi sau khi PO confirm /
+  // cancel / receive hoặc sau khi điều chỉnh kho. Giữ `reserved` từ Inventory cũ
+  // (vì reserved do orderService quản lý). onHand = available + reserved.
+  async syncInventoryRecordsFromProduct(product, { session = null } = {}) {
+    if (!product?._id || !Array.isArray(product.variants) || product.variants.length === 0) {
+      return;
+    }
+
+    await Promise.all(
+      product.variants.map(async (variant) => {
+        const variantSku = (variant.sku || "").toString().trim();
+        if (!variantSku) return;
+
+        const available = Math.max(0, Number(variant.stock || 0));
+        const incoming = Math.max(0, Number(variant.incoming || 0));
+
+        const inventoryQuery = Inventory.findOne({
+          productId: product._id,
+          variantSku,
+          warehouseId: SINGLE_WAREHOUSE_ID,
+        });
+        if (session) inventoryQuery.session(session);
+        let inventory = await inventoryQuery;
+
+        const reserved = inventory ? Math.max(0, Number(inventory.reserved || 0)) : 0;
+        const wasLowStock = inventory
+          ? this.isLowStockByRule(inventory.available, inventory.reorderPoint)
+          : false;
+
+        if (!inventory) {
+          inventory = new Inventory({
+            productId: product._id,
+            variantSku,
+            warehouseId: SINGLE_WAREHOUSE_ID,
+            warehouseName: SINGLE_WAREHOUSE_NAME,
+          });
+        }
+
+        inventory.available = available;
+        inventory.incoming = incoming;
+        inventory.onHand = available + reserved;
+        inventory.lowStockAlert = this.isLowStockByRule(
+          inventory.available,
+          inventory.reorderPoint,
+        );
+        inventory.updatedAt = new Date();
+
+        await inventory.save(session ? { session } : undefined);
+
+        if (!wasLowStock && inventory.lowStockAlert) {
+          void notificationService.notifyInventoryLowStock(inventory);
+        }
+      }),
+    );
+  }
 }
 
 export default new InventoryService();

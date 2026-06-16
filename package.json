@@ -19,6 +19,7 @@
     "purge:analytics": "node scripts/purgeAnalyticsEvents.js",
     "email:test": "node scripts/testEmail.js",
     "ghn:resolve": "node scripts/resolveGhnAddress.js",
+    "backfill:order-costs": "node scripts/backfillOrderCostSnapshots.js",
     "fix:user-indexes": "node scripts/fixUserReferralIndex.js",
     "test": "node --test --experimental-test-isolation=none ../test/server/*.test.js"
   },

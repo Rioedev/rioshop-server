@@ -1,4 +1,5 @@
 import express from "express";
+import { authenticateToken } from "../middlewares/auth.js";
 import { validateRequest } from "../middlewares/validation.js";
 import {
   getBrandConfig,
@@ -11,12 +12,13 @@ import {
 
 const router = express.Router();
 
-// Get brand config
+// Public: storefront cần đọc brand config (logo, hotline, footer...)
 router.get("/:brandKey", validateRequest(getBrandConfigValidation), getBrandConfig);
 
-// Update brand config
+// Admin only
 router.put(
   "/:brandKey",
+  authenticateToken,
   validateRequest(updateBrandConfigValidation),
   updateBrandConfig,
 );

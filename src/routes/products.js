@@ -1,5 +1,6 @@
 import express from "express";
 import multer from "multer";
+import { authenticateToken } from "../middlewares/auth.js";
 import { validateRequest } from "../middlewares/validation.js";
 import {
   getAllProducts,
@@ -13,6 +14,7 @@ import {
   deleteProduct,
   uploadProductImage,
   getRelatedProducts,
+  getCartRecommendations,
 } from "../controllers/productController.js";
 import {
   createProductValidation,
@@ -22,6 +24,7 @@ import {
   productIdValidation,
   productSlugValidation,
   relatedProductsValidation,
+  cartRecommendationsValidation,
 } from "../validations/products.js";
 
 const router = express.Router();
@@ -57,29 +60,36 @@ router.get("/", validateRequest(paginationValidation), getAllProducts);
 // Search products
 router.get("/search", validateRequest(searchProductsValidation), searchProducts);
 
-// Export products to XLSX
-router.get("/export-xlsx", validateRequest(paginationValidation), exportProductsXlsx);
+// Recommend products that complement the current cart (public)
+router.post(
+  "/cart-recommendations",
+  validateRequest(cartRecommendationsValidation),
+  getCartRecommendations,
+);
 
-// Download products XLSX import template
-router.get("/import-template-xlsx", downloadProductsImportTemplateXlsx);
+// Export products to XLSX (admin)
+router.get("/export-xlsx", authenticateToken, validateRequest(paginationValidation), exportProductsXlsx);
 
-// Import products from XLSX
-router.post("/import-xlsx", uploadXlsx.single("file"), importProductsXlsx);
+// Download products XLSX import template (admin)
+router.get("/import-template-xlsx", authenticateToken, downloadProductsImportTemplateXlsx);
 
-// Create product
-router.post("/", validateRequest(createProductValidation), createProduct);
+// Import products from XLSX (admin)
+router.post("/import-xlsx", authenticateToken, uploadXlsx.single("file"), importProductsXlsx);
 
-// Upload product image
-router.post("/upload-image", upload.single("file"), uploadProductImage);
+// Create product (admin)
+router.post("/", authenticateToken, validateRequest(createProductValidation), createProduct);
 
-// Get related products
+// Upload product image (admin)
+router.post("/upload-image", authenticateToken, upload.single("file"), uploadProductImage);
+
+// Get related products (public)
 router.get("/:id/related", validateRequest(relatedProductsValidation), getRelatedProducts);
 
-// Update product
-router.put("/:id", validateRequest(productIdValidation), validateRequest(updateProductValidation), updateProduct);
+// Update product (admin)
+router.put("/:id", authenticateToken, validateRequest(productIdValidation), validateRequest(updateProductValidation), updateProduct);
 
-// Soft delete product
-router.delete("/:id", validateRequest(productIdValidation), deleteProduct);
+// Soft delete product (admin)
+router.delete("/:id", authenticateToken, validateRequest(productIdValidation), deleteProduct);
 
 // Get product by slug
 router.get("/:slug", validateRequest(productSlugValidation), getProductBySlug);

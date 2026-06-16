@@ -149,5 +149,21 @@ export const updateReturnRequestStatusValidation = Joi.object({
   body: Joi.object({
     status: Joi.string().valid("pending", "approved", "rejected", "completed").required(),
     note: Joi.string().trim().allow("", null).max(1000).optional(),
+    exchangeItems: Joi.array()
+      .items(
+        Joi.object({
+          productId: objectId.required(),
+          originalVariantSku: Joi.string().trim().required(),
+          replacementVariantSku: Joi.string().trim().required(),
+          quantity: Joi.number().integer().min(1).required(),
+          returnDisposition: Joi.string().valid("restock", "quarantine").required(),
+        }),
+      )
+      .min(1)
+      .when("status", {
+        is: "completed",
+        then: Joi.required(),
+        otherwise: Joi.optional(),
+      }),
   }).required(),
 });

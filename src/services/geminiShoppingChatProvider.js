@@ -53,8 +53,8 @@ const toChatProductCandidate = (recommendation) => {
     name: toSafeAiString(product.name, 120),
     brand: toSafeAiString(product.brand, 80),
     category: toSafeAiString(product.category?.name, 80),
-    price: Number(product.pricing?.salePrice || 0),
-    basePrice: Number(product.pricing?.basePrice || 0),
+    price: Number(product.pricing?.regularPrice || product.pricing?.salePrice || 0),
+    basePrice: Number(product.pricing?.compareAtPrice || product.pricing?.basePrice || 0),
     availableStock: Number(product.inventorySummary?.available || 0),
     colors: uniqueValues(
       variants.flatMap((variant) => [

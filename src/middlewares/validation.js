@@ -20,8 +20,10 @@ const FIELD_LABELS = {
   categoryId: "Mã danh mục",
   collectionId: "Mã bộ sưu tập",
   variantSku: "SKU biến thể",
-  salePrice: "Giá bán",
-  basePrice: "Giá gốc",
+  regularPrice: "Giá bán thường ngày",
+  compareAtPrice: "Giá tham chiếu",
+  salePrice: "Giá bán (legacy)",
+  basePrice: "Giá gốc (legacy)",
 };
 
 const normalizeFieldName = (value = "") =>

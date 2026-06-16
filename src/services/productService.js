@@ -1,5 +1,8 @@
 import Product from "../models/Product.js";
+import Order from "../models/Order.js";
+import mongoose from "mongoose";
 import Inventory from "../models/Inventory.js";
+import PurchaseOrder from "../models/PurchaseOrder.js";
 import { CACHE_KEYS, CACHE_TTL } from "../constants/index.js";
 import { redisClient } from "../config/redis.js";
 import { AppError } from "../utils/helpers.js";
@@ -12,6 +15,85 @@ import {
 
 const escapeRegex = (value = "") =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const normalizeRecommendationText = (value = "") =>
+  value
+    .toString()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
+    .trim()
+    .toLowerCase();
+
+const classifyProductCategory = (product) => {
+  const value = normalizeRecommendationText(
+    [product?.category?.name, product?.category?.slug, ...(product?.tags || [])].join(" "),
+  );
+
+  if (/\b(ao khoac|jacket|blazer|cardigan|hoodie)\b/.test(value)) return "outerwear";
+  if (/\b(quan|pants|jeans|short)\b/.test(value)) return "bottom";
+  if (/\b(vay|dam|dress|skirt)\b/.test(value)) return "dress";
+  if (/\b(giay|dep|sandal|shoe|sneaker)\b/.test(value)) return "footwear";
+  if (/\b(mu|non|tui|that lung|phu kien|accessor)\b/.test(value)) return "accessory";
+  if (/\b(ao|shirt|polo|top|blouse|tank)\b/.test(value)) return "top";
+  return "other";
+};
+
+const COMPLEMENTARY_CATEGORY_GROUPS = {
+  top: new Set(["bottom", "outerwear", "accessory"]),
+  bottom: new Set(["top", "outerwear", "accessory"]),
+  dress: new Set(["outerwear", "accessory", "footwear"]),
+  outerwear: new Set(["top", "bottom", "dress"]),
+  accessory: new Set(["top", "bottom", "dress", "outerwear"]),
+  footwear: new Set(["bottom", "dress"]),
+};
+
+const toStringSet = (values = []) =>
+  new Set(values.map((value) => value?.toString?.().trim()).filter(Boolean));
+
+const pickLegacyAwarePrice = (canonical, legacy, fallback = NaN) => {
+  const canonicalNumber = Number(canonical);
+  const legacyNumber = Number(legacy);
+
+  if (Number.isFinite(canonicalNumber) && canonicalNumber > 0) {
+    return canonicalNumber;
+  }
+  if (Number.isFinite(legacyNumber) && legacyNumber > 0) {
+    return legacyNumber;
+  }
+  if (Number.isFinite(canonicalNumber)) {
+    return canonicalNumber;
+  }
+  if (Number.isFinite(legacyNumber)) {
+    return legacyNumber;
+  }
+  return fallback;
+};
+
+const normalizeProductPricingForRead = (product) => {
+  if (!product) return product;
+  const pricing = product.pricing || {};
+  const regularPrice = Math.max(
+    0,
+    pickLegacyAwarePrice(pricing.regularPrice, pricing.salePrice, 0),
+  );
+  const compareAtPrice = Math.max(
+    0,
+    pickLegacyAwarePrice(pricing.compareAtPrice, pricing.basePrice, 0),
+  );
+
+  return {
+    ...product,
+    pricing: {
+      ...pricing,
+      regularPrice,
+      compareAtPrice,
+      salePrice: regularPrice,
+      basePrice: compareAtPrice,
+    },
+  };
+};
 
 export class ProductService {
   buildInventorySummary(variants = [], reserved = 0) {
@@ -30,25 +112,40 @@ export class ProductService {
 
   resolvePricingPayload(pricing, existingProduct = null) {
     const existingPricing = existingProduct?.pricing || {};
-    const basePriceInput =
-      pricing?.basePrice !== undefined
-        ? Number(pricing.basePrice)
-        : Number(existingPricing.basePrice);
-    const salePriceInput =
-      pricing?.salePrice !== undefined
-        ? Number(pricing.salePrice)
-        : Number(existingPricing.salePrice);
+    const existingRegularPrice = pickLegacyAwarePrice(
+      existingPricing?.regularPrice,
+      existingPricing?.salePrice,
+    );
+    const existingCompareAtPrice = pickLegacyAwarePrice(
+      existingPricing?.compareAtPrice,
+      existingPricing?.basePrice,
+      0,
+    );
+    const regularPriceInput =
+      pricing?.regularPrice !== undefined
+        ? Number(pricing.regularPrice)
+        : pricing?.salePrice !== undefined
+          ? Number(pricing.salePrice)
+          : existingRegularPrice;
+    const compareAtPriceInput =
+      pricing?.compareAtPrice !== undefined
+        ? Number(pricing.compareAtPrice)
+        : pricing?.basePrice !== undefined
+          ? Number(pricing.basePrice)
+          : existingCompareAtPrice;
 
-    if (!Number.isFinite(salePriceInput)) {
-      throw new AppError("Product sale price is required", 400);
+    if (!Number.isFinite(regularPriceInput)) {
+      throw new AppError("Regular price is required", 400);
     }
 
-    const salePrice = Math.max(0, salePriceInput);
-    // basePrice giờ là tùy chọn (= giá niêm yết để gạch ngang). Nếu không nhập / = 0
-    // → không hiển thị gạch ngang. Nếu nhập thì phải >= salePrice.
-    const basePrice = Number.isFinite(basePriceInput) ? Math.max(0, basePriceInput) : 0;
-    if (basePrice > 0 && basePrice < salePrice) {
-      throw new AppError("Base price (giá niêm yết) phải lớn hơn hoặc bằng giá bán", 400);
+    const regularPrice = Math.max(0, regularPriceInput);
+    // compareAtPrice là giá tham chiếu/MSRP/giá niêm yết để so sánh. Nếu không nhập
+    // hoặc = 0 thì storefront không hiển thị giá gạch ngang.
+    const compareAtPrice = Number.isFinite(compareAtPriceInput)
+      ? Math.max(0, compareAtPriceInput)
+      : 0;
+    if (compareAtPrice > 0 && compareAtPrice < regularPrice) {
+      throw new AppError("Compare-at price must be greater than or equal to regular price", 400);
     }
 
     const currency =
@@ -56,9 +153,17 @@ export class ProductService {
       existingPricing?.currency?.toString().trim() ||
       "VND";
 
+    // costPrice chỉ thay đổi qua PO nhập hàng (weighted avg) — admin gửi gì cũng giữ
+    // theo DB. Sản phẩm mới chưa có PO nào thì = 0.
+    const costPrice = Math.max(0, Number(existingPricing?.costPrice ?? 0));
+
     return {
-      basePrice,
-      salePrice,
+      regularPrice,
+      compareAtPrice,
+      // Legacy aliases for old UI/data. Canonical names above are the source of truth.
+      salePrice: regularPrice,
+      basePrice: compareAtPrice,
+      costPrice,
       currency,
     };
   }
@@ -148,6 +253,16 @@ export class ProductService {
         throw new AppError("Product SKU could not be generated", 400);
       }
 
+      // Map các variant đang có theo SKU để giữ nguyên stock / costPrice / incoming
+      // — admin KHÔNG được phép sửa 3 field này qua form sản phẩm. Chúng chỉ thay đổi
+      // qua PO nhập hàng hoặc Điều chỉnh kho (luồng có audit trail).
+      const existingVariantMap = new Map(
+        (existingProduct?.variants ?? []).map((variant) => [
+          (variant.sku || "").trim(),
+          variant,
+        ]),
+      );
+
       const reservedSkus = new Set([normalizeSkuInput(productSkuForVariants)]);
       nextData.variants = await Promise.all(
         (data.variants ?? []).map(async (variant, index) => {
@@ -165,13 +280,24 @@ export class ProductService {
               index,
             });
 
+          const resolvedSku = await this.resolveUniqueSku(
+            requestedVariantSku,
+            reservedSkus,
+            excludeProductId,
+          );
+
+          // Variant mới (chưa từng tồn tại) → stock/cost/incoming = 0 (chờ PO).
+          // Variant đã có → giữ nguyên các giá trị đang lưu trong DB.
+          const matchedExisting = existingVariantMap.get(resolvedSku) ?? null;
+
           return {
             ...variant,
             variantId: variant.variantId?.trim(),
-            sku: await this.resolveUniqueSku(requestedVariantSku, reservedSkus, excludeProductId),
+            sku: resolvedSku,
             size: nextSize,
             sizeLabel: variant.sizeLabel?.trim() || nextSize,
-            stock: Math.max(Number(variant.stock ?? 0), 0),
+            stock: Math.max(0, Number(matchedExisting?.stock ?? 0)),
+            incoming: Math.max(0, Number(matchedExisting?.incoming ?? 0)),
             barcode: variant.barcode?.trim() || "",
             images: (variant.images ?? []).map((image) => image?.trim()).filter(Boolean),
             color:
@@ -236,6 +362,113 @@ export class ProductService {
     }
   }
 
+  async getBestSellingProducts(filters = {}, options = {}) {
+    const { page = 1, limit = 10 } = options;
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 10));
+
+    const [result] = await Order.aggregate([
+      {
+        $match: {
+          status: { $in: ["delivered", "completed"] },
+        },
+      },
+      { $unwind: "$items" },
+      {
+        $group: {
+          _id: "$items.productId",
+          salesCount: {
+            $sum: {
+              $max: [
+                { $subtract: ["$items.quantity", { $ifNull: ["$items.returnedQty", 0] }] },
+                0,
+              ],
+            },
+          },
+          orderIds: { $addToSet: "$_id" },
+        },
+      },
+      {
+        $lookup: {
+          from: Product.collection.name,
+          localField: "_id",
+          foreignField: "_id",
+          as: "product",
+        },
+      },
+      { $unwind: "$product" },
+      {
+        $replaceRoot: {
+          newRoot: {
+            $mergeObjects: [
+              "$product",
+              {
+                salesCount: "$salesCount",
+                salesOrderCount: { $size: "$orderIds" },
+              },
+            ],
+          },
+        },
+      },
+      { $match: { deletedAt: null, ...filters } },
+      { $sort: { salesCount: -1, createdAt: -1 } },
+      {
+        $facet: {
+          docs: [{ $skip: (safePage - 1) * safeLimit }, { $limit: safeLimit }],
+          metadata: [{ $count: "totalDocs" }],
+        },
+      },
+    ]);
+
+    const docs = (result?.docs ?? []).map(normalizeProductPricingForRead);
+    const totalDocs = result?.metadata?.[0]?.totalDocs ?? 0;
+
+    return {
+      docs,
+      totalDocs,
+      limit: safeLimit,
+      page: safePage,
+      totalPages: Math.max(1, Math.ceil(totalDocs / safeLimit)),
+      hasPrevPage: safePage > 1,
+      hasNextPage: safePage * safeLimit < totalDocs,
+    };
+  }
+
+  async getNewArrivalProducts(filters = {}, options = {}) {
+    const { page = 1, limit = 10 } = options;
+    const safePage = Math.max(1, Number(page) || 1);
+    const safeLimit = Math.max(1, Math.min(100, Number(limit) || 10));
+
+    const [result] = await Product.aggregate([
+      {
+        $set: {
+          effectivePublishedAt: { $ifNull: ["$publishedAt", "$createdAt"] },
+        },
+      },
+      { $match: { deletedAt: null, ...filters } },
+      { $sort: { effectivePublishedAt: -1, createdAt: -1 } },
+      {
+        $facet: {
+          docs: [{ $skip: (safePage - 1) * safeLimit }, { $limit: safeLimit }],
+          metadata: [{ $count: "totalDocs" }],
+        },
+      },
+    ]);
+
+    const docs = (result?.docs ?? []).map(normalizeProductPricingForRead);
+    const totalDocs = result?.metadata?.[0]?.totalDocs ?? 0;
+
+    return {
+      docs,
+      totalDocs,
+      limit: safeLimit,
+      page: safePage,
+      totalPages: Math.max(1, Math.ceil(totalDocs / safeLimit)),
+      hasPrevPage: safePage > 1,
+      hasNextPage: safePage * safeLimit < totalDocs,
+    };
+  }
+
   async getProductBySlug(slug) {
     try {
       const cacheKey = `${CACHE_KEYS.PRODUCT}${slug}`;
@@ -282,6 +515,9 @@ export class ProductService {
   async createProduct(data) {
     try {
       const payload = await this.prepareProductPayload(data);
+      // Sản phẩm tạo mới luôn là "draft" — chưa có PO nhập hàng nên không thể
+      // bán được. Admin muốn bán phải nhập hàng trước rồi update sang "active".
+      payload.status = "draft";
       const product = new Product(payload);
       await product.save();
       await this.syncSingleWarehouseInventoryForProduct(product);
@@ -299,6 +535,15 @@ export class ProductService {
       }
 
       const payload = await this.prepareProductPayload(data, existingProduct);
+
+      if (!existingProduct.publishedAt) {
+        const isFirstActivation = existingProduct.status !== "active" && payload.status === "active";
+        if (isFirstActivation) {
+          payload.publishedAt = new Date();
+        } else if (existingProduct.status === "active") {
+          payload.publishedAt = existingProduct.createdAt || new Date();
+        }
+      }
 
       const product = await Product.findOneAndUpdate(
         { _id: id, deletedAt: null },
@@ -328,6 +573,21 @@ export class ProductService {
 
   async deleteProduct(id) {
     try {
+      // Chặn xóa nếu sp đang có PO chưa kết thúc — tránh orphan PO không nhận được.
+      // Phải hủy/nhận xong các PO liên quan trước rồi mới xóa.
+      const activePo = await PurchaseOrder.findOne({
+        "lines.productId": id,
+        status: { $in: ["draft", "ordered", "partially_received"] },
+      })
+        .select("poNumber status")
+        .lean();
+      if (activePo) {
+        throw new AppError(
+          `Không thể xóa: sản phẩm đang có đơn nhập ${activePo.poNumber} (${activePo.status}). Hãy hủy hoặc hoàn tất đơn nhập trước.`,
+          409,
+        );
+      }
+
       const product = await Product.findOneAndUpdate(
         { _id: id, deletedAt: null },
         {
@@ -375,6 +635,171 @@ export class ProductService {
     } catch (error) {
       throw error;
     }
+  }
+
+  async getCartRecommendations(productIds = [], limit = 4) {
+    const uniqueProductIds = [...new Set(productIds.map((id) => id?.toString().trim()).filter(Boolean))];
+    const safeLimit = Math.max(1, Math.min(12, Number(limit) || 4));
+    if (uniqueProductIds.length === 0) return [];
+
+    const cartObjectIds = uniqueProductIds.map((id) => new mongoose.Types.ObjectId(id));
+    const cartProducts = await Product.find({
+      _id: { $in: cartObjectIds },
+      deletedAt: null,
+    }).lean();
+    if (cartProducts.length === 0) return [];
+
+    const cartGenders = new Set(
+      cartProducts
+        .map((product) => product.gender?.toString().trim())
+        .filter((gender) => gender && gender !== "unisex"),
+    );
+    const allowedCandidateGenders =
+      cartGenders.size > 0 ? [...cartGenders, "unisex"] : null;
+
+    const coPurchaseRows = await Order.aggregate([
+      {
+        $match: {
+          status: { $in: ["delivered", "completed"] },
+          "exchangeMeta.isReplacement": { $ne: true },
+          "items.productId": { $in: cartObjectIds },
+          $or: [
+            { paymentStatus: "paid" },
+            {
+              paymentMethod: "cod",
+              status: { $in: ["delivered", "completed"] },
+            },
+          ],
+        },
+      },
+      { $unwind: "$items" },
+      { $match: { "items.productId": { $nin: cartObjectIds } } },
+      {
+        $group: {
+          _id: "$items.productId",
+          orderIds: { $addToSet: "$_id" },
+          purchasedQuantity: {
+            $sum: {
+              $max: [
+                { $subtract: ["$items.quantity", { $ifNull: ["$items.returnedQty", 0] }] },
+                0,
+              ],
+            },
+          },
+        },
+      },
+      {
+        $project: {
+          orderCount: { $size: "$orderIds" },
+          purchasedQuantity: 1,
+        },
+      },
+      { $sort: { orderCount: -1, purchasedQuantity: -1 } },
+      { $limit: 100 },
+    ]);
+
+    const coPurchaseByProductId = new Map(
+      coPurchaseRows.map((row) => [row._id.toString(), row]),
+    );
+    const maxCoPurchaseOrders = Math.max(
+      1,
+      ...coPurchaseRows.map((row) => Number(row.orderCount || 0)),
+    );
+
+    const candidateFilter = {
+      _id: { $nin: cartObjectIds },
+      status: "active",
+      deletedAt: null,
+      ...(allowedCandidateGenders
+        ? { gender: { $in: allowedCandidateGenders } }
+        : {}),
+      $or: [
+        { "inventorySummary.available": { $gt: 0 } },
+        { variants: { $elemMatch: { isActive: { $ne: false }, stock: { $gt: 0 } } } },
+      ],
+    };
+    const coPurchaseProductIds = coPurchaseRows.map((row) => row._id);
+    const [coPurchaseCandidates, fallbackCandidates] = await Promise.all([
+      coPurchaseProductIds.length > 0
+        ? Product.find({
+            ...candidateFilter,
+            _id: { $in: coPurchaseProductIds, $nin: cartObjectIds },
+          }).lean()
+        : [],
+      Product.find(candidateFilter)
+        .sort({ totalSold: -1, "ratings.avg": -1, createdAt: -1 })
+        .limit(120)
+        .lean(),
+    ]);
+    const candidateMap = new Map();
+    [...coPurchaseCandidates, ...fallbackCandidates].forEach((product) => {
+      candidateMap.set(product._id.toString(), product);
+    });
+    const candidates = Array.from(candidateMap.values());
+
+    const maxTotalSold = Math.max(1, ...candidates.map((product) => Number(product.totalSold || 0)));
+
+    return candidates
+      .map((candidate) => {
+        const candidateId = candidate._id.toString();
+        const coPurchase = coPurchaseByProductId.get(candidateId);
+        const coPurchaseScore = coPurchase
+          ? (Number(coPurchase.orderCount || 0) / maxCoPurchaseOrders) * 55
+          : 0;
+
+        let relationScore = 0;
+        const candidateCategoryGroup = classifyProductCategory(candidate);
+        const candidateCollections = toStringSet(candidate.collections?.map((item) => item?._id));
+        const candidateTags = new Set((candidate.tags || []).map(normalizeRecommendationText));
+
+        cartProducts.forEach((cartProduct) => {
+          let anchorScore = 0;
+          const cartCategoryGroup = classifyProductCategory(cartProduct);
+          const complementaryGroups = COMPLEMENTARY_CATEGORY_GROUPS[cartCategoryGroup] || new Set();
+
+          if (complementaryGroups.has(candidateCategoryGroup)) {
+            anchorScore += 14;
+          } else if (
+            candidate.category?._id &&
+            candidate.category._id.toString() === cartProduct.category?._id?.toString()
+          ) {
+            anchorScore += 6;
+          }
+
+          if (candidate.gender && candidate.gender === cartProduct.gender) {
+            anchorScore += 5;
+          }
+
+          const cartCollections = toStringSet(cartProduct.collections?.map((item) => item?._id));
+          if ([...candidateCollections].some((id) => cartCollections.has(id))) {
+            anchorScore += 4;
+          }
+
+          const cartTags = new Set((cartProduct.tags || []).map(normalizeRecommendationText));
+          if ([...candidateTags].some((tag) => tag && cartTags.has(tag))) {
+            anchorScore += 2;
+          }
+
+          if (anchorScore > relationScore) {
+            relationScore = Math.min(25, anchorScore);
+          }
+        });
+
+        const popularityScore = (Number(candidate.totalSold || 0) / maxTotalSold) * 10;
+        const ratingScore = (Math.min(5, Math.max(0, Number(candidate.ratings?.avg || 0))) / 5) * 5;
+        const score = Math.min(100, coPurchaseScore + relationScore + popularityScore + ratingScore);
+
+        return {
+          product: normalizeProductPricingForRead(candidate),
+          score: Number(score.toFixed(1)),
+          signals: {
+            coPurchaseOrders: Number(coPurchase?.orderCount || 0),
+            coPurchaseQuantity: Number(coPurchase?.purchasedQuantity || 0),
+          },
+        };
+      })
+      .sort((left, right) => right.score - left.score)
+      .slice(0, safeLimit);
   }
 
   async getRelatedProducts(productId, limit = 6) {

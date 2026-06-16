@@ -311,6 +311,59 @@ export class GHNShippingService {
     }
   }
 
+  static async getAvailableServices({ fromDistrictId, toDistrictId } = {}) {
+    this.assertConfigured();
+    const fromDistrict = Number(fromDistrictId || 0);
+    const toDistrict = Number(toDistrictId || 0);
+
+    if (!fromDistrict || !toDistrict) {
+      return [];
+    }
+
+    try {
+      const response = await axios.post(
+        `${GHN_API_BASE_URL}/v2/shipping-order/available-services`,
+        {
+          shop_id: Number(process.env.GHN_SHOP_ID || 0),
+          from_district: fromDistrict,
+          to_district: toDistrict,
+        },
+        {
+          headers: this.getHeaders({ includeShopId: true }),
+          timeout: GHN_TIMEOUT_MS,
+        },
+      );
+
+      return response.data?.data || [];
+    } catch (error) {
+      throw parseGhnApiError("GHN available services lookup failed", error);
+    }
+  }
+
+  static async resolveServiceId(payload = {}) {
+    const sender = this.getSenderConfig();
+    const toDistrictId = Number(payload.toDistrictId || payload.recipientDistrictId || 0);
+    const preferredServiceTypeId = this.mapShippingMethodToServiceType(payload.shippingMethod);
+    const services = await this.getAvailableServices({
+      fromDistrictId: sender.fromDistrictId,
+      toDistrictId,
+    });
+
+    const preferredService = services.find(
+      (service) => Number(service?.service_type_id) === preferredServiceTypeId,
+    );
+    const fallbackService = services[0];
+    const serviceId = Number(
+      preferredService?.service_id ||
+        preferredService?.ServiceID ||
+        fallbackService?.service_id ||
+        fallbackService?.ServiceID ||
+        0,
+    );
+
+    return Number.isFinite(serviceId) ? serviceId : 0;
+  }
+
   static async calculateFee(payload = {}) {
     this.assertConfigured();
     const sender = this.getSenderConfig();
@@ -322,11 +375,17 @@ export class GHNShippingService {
     }
 
     const packageProfile = this.normalizePackageProfile(payload.packageProfile || payload);
+    const serviceTypeId = this.mapShippingMethodToServiceType(payload.shippingMethod);
+    const serviceId = await this.resolveServiceId({
+      ...payload,
+      toDistrictId,
+    });
     const requestBody = {
       shop_id: Number(process.env.GHN_SHOP_ID || 0),
       from_district_id: sender.fromDistrictId,
       from_ward_code: sender.fromWardCode,
-      service_type_id: this.mapShippingMethodToServiceType(payload.shippingMethod),
+      service_id: serviceId,
+      service_type_id: serviceTypeId,
       to_district_id: toDistrictId,
       to_ward_code: toWardCode,
       weight: packageProfile.weight,

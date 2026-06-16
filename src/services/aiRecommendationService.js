@@ -7,35 +7,35 @@ const CANDIDATE_LIMIT = 80;
 const MIN_QUERY_LENGTH = 2;
 
 const STOP_WORDS = new Set([
-  "toi",
-  "minh",
-  "can",
-  "muon",
-  "tim",
+  "tôi",
+  "mình",
+  "cần",
+  "muốn",
+  "tìm",
   "mua",
-  "san",
-  "pham",
-  "hang",
+  "sản",
+  "phẩm",
+  "hàng",
   "cho",
-  "va",
-  "voi",
-  "hoac",
-  "la",
-  "de",
-  "mac",
-  "co",
-  "gia",
-  "duoi",
-  "tren",
-  "khoang",
-  "tam",
-  "mot",
-  "nhung",
-  "cac",
-  "nay",
-  "that",
-  "dep",
-  "tot",
+  "và",
+  "với",
+  "hoặc",
+  "là",
+  "dễ",
+  "mặc",
+  "có",
+  "giá",
+  "dưới",
+  "trên",
+  "khoảng",
+  "tầm",
+  "một",
+  "nhưng",
+  "các",
+  "này",
+  "thật",
+  "đẹp",
+  "tốt",
 ]);
 
 const CATEGORY_INTENTS = [
@@ -497,7 +497,7 @@ const buildRecommendationReason = (product, intent, signals) => {
       `Phù hợp nhu cầu ${[matchedCategory?.replace("Danh mục ", ""), intent.gender?.label].filter(Boolean).join(" ")}.`,
     );
   }
-  if (intent.maxPrice && Number(product.pricing?.salePrice || 0) <= intent.maxPrice) {
+  if (intent.maxPrice && Number(product.pricing?.regularPrice || product.pricing?.salePrice || 0) <= intent.maxPrice) {
     parts.push(`Giá nằm trong ngân sách ${formatBudget(intent.maxPrice)}.`);
   }
   if (matchedColor) {
@@ -559,17 +559,17 @@ export const rankRecommendationCandidates = (products = [], intent = {}) => {
       }
     }
 
-    const salePrice = Number(product.pricing?.salePrice || 0);
-    if (intent.maxPrice && salePrice > 0 && salePrice <= intent.maxPrice) {
+    const regularPrice = Number(product.pricing?.regularPrice || product.pricing?.salePrice || 0);
+    if (intent.maxPrice && regularPrice > 0 && regularPrice <= intent.maxPrice) {
       score += 14;
       addSignal(signals, `Dưới ${formatBudget(intent.maxPrice)}`);
-    } else if (intent.maxPrice && salePrice > intent.maxPrice) {
+    } else if (intent.maxPrice && regularPrice > intent.maxPrice) {
       score -= 24;
     }
 
-    if (intent.minPrice && salePrice >= intent.minPrice) {
+    if (intent.minPrice && regularPrice >= intent.minPrice) {
       score += 5;
-    } else if (intent.minPrice && salePrice < intent.minPrice) {
+    } else if (intent.minPrice && regularPrice < intent.minPrice) {
       score -= 8;
     }
 
@@ -578,9 +578,9 @@ export const rankRecommendationCandidates = (products = [], intent = {}) => {
     );
     score += Math.min(tokenMatches.length * 2, 16);
 
-    const basePrice = Number(product.pricing?.basePrice || 0);
-    if (basePrice > salePrice && salePrice > 0) {
-      score += Math.min(((basePrice - salePrice) / basePrice) * 10, 8);
+    const compareAtPrice = Number(product.pricing?.compareAtPrice || product.pricing?.basePrice || 0);
+    if (compareAtPrice > regularPrice && regularPrice > 0) {
+      score += Math.min(((compareAtPrice - regularPrice) / compareAtPrice) * 10, 8);
       addSignal(signals, "Đang giảm giá");
     }
 
@@ -695,17 +695,25 @@ const buildProductQuery = (intent, context = {}, mode = "strict") => {
     "inventorySummary.available": { $gt: 0 },
   };
 
-  if (intent.maxPrice) {
-    query["pricing.salePrice"] = {
-      ...(query["pricing.salePrice"] ?? {}),
-      $lte: intent.maxPrice,
+  if (intent.maxPrice || intent.minPrice) {
+    const priceExpr = {
+      $cond: [
+        { $gt: [{ $ifNull: ["$pricing.regularPrice", 0] }, 0] },
+        "$pricing.regularPrice",
+        { $ifNull: ["$pricing.salePrice", 0] },
+      ],
     };
-  }
-  if (intent.minPrice) {
-    query["pricing.salePrice"] = {
-      ...(query["pricing.salePrice"] ?? {}),
-      $gte: intent.minPrice,
-    };
+    const priceConditions = [];
+    if (intent.maxPrice) {
+      priceConditions.push({ $lte: [priceExpr, intent.maxPrice] });
+    }
+    if (intent.minPrice) {
+      priceConditions.push({ $gte: [priceExpr, intent.minPrice] });
+    }
+    query.$and = [
+      ...(query.$and ?? []),
+      { $expr: priceConditions.length === 1 ? priceConditions[0] : { $and: priceConditions } },
+    ];
   }
 
   if (context.categoryId) {

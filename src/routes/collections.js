@@ -10,6 +10,7 @@ import {
   deleteCollection,
   uploadCollectionImage,
 } from "../controllers/collectionController.js";
+import { authenticateToken } from "../middlewares/auth.js";
 import { validateRequest } from "../middlewares/validation.js";
 import {
   createCollectionValidation,
@@ -30,12 +31,13 @@ const upload = multer({
 
 router.get("/", validateRequest(collectionPaginationValidation), getAllCollections);
 router.get("/search", validateRequest(searchCollectionValidation), searchCollections);
-router.post("/upload-image", upload.single("file"), uploadCollectionImage);
+router.post("/upload-image", authenticateToken, upload.single("file"), uploadCollectionImage);
 router.get("/id/:id", validateRequest(getCollectionByIdValidation), getCollectionById);
 router.get("/:slug", getCollectionBySlug);
 
-router.post("/", validateRequest(createCollectionValidation), createCollection);
-router.put("/:id", validateRequest(getCollectionByIdValidation), validateRequest(updateCollectionValidation), updateCollection);
-router.delete("/:id", validateRequest(deleteCollectionValidation), deleteCollection);
+// Admin routes — yêu cầu auth
+router.post("/", authenticateToken, validateRequest(createCollectionValidation), createCollection);
+router.put("/:id", authenticateToken, validateRequest(getCollectionByIdValidation), validateRequest(updateCollectionValidation), updateCollection);
+router.delete("/:id", authenticateToken, validateRequest(deleteCollectionValidation), deleteCollection);
 
 export default router;

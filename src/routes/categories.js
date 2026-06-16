@@ -13,6 +13,7 @@ import {
   getCategoryStats,
   uploadCategoryImage,
 } from "../controllers/categoryController.js";
+import { authenticateToken } from "../middlewares/auth.js";
 import { validateRequest } from "../middlewares/validation.js";
 import {
   createCategoryValidation,
@@ -49,8 +50,8 @@ router.get(
 // Get category statistics
 router.get("/stats", getCategoryStats);
 
-// Upload category image
-router.post("/upload-image", upload.single("file"), uploadCategoryImage);
+// Upload category image (admin)
+router.post("/upload-image", authenticateToken, upload.single("file"), uploadCategoryImage);
 
 // Get subcategories of a category
 router.get(
@@ -69,16 +70,12 @@ router.get(
 // Get category by slug (must be last to avoid conflicts)
 router.get("/:slug", getCategoryBySlug);
 
-// Admin routes
-// Create new category
-router.post("/", validateRequest(createCategoryValidation), createCategory);
-
-// Update category
-router.put("/:id", validateRequest(updateCategoryValidation), updateCategory);
-
-// Delete category
+// Admin routes — yêu cầu auth
+router.post("/", authenticateToken, validateRequest(createCategoryValidation), createCategory);
+router.put("/:id", authenticateToken, validateRequest(updateCategoryValidation), updateCategory);
 router.delete(
   "/:id",
+  authenticateToken,
   validateRequest(deleteCategoryValidation),
   deleteCategory,
 );

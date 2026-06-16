@@ -1,4 +1,5 @@
 import express from "express";
+import { authenticateToken } from "../middlewares/auth.js";
 import {
   listPolicies,
   listActiveByKind,
@@ -16,10 +17,10 @@ router.get("/active/:kind", listActiveByKind);
 // Public: fetch a single active policy page by slug
 router.get("/pages/:slug", getActivePageBySlug);
 
-// Admin: full CRUD list with filters (kind, isActive)
-router.get("/", listPolicies);
-router.post("/", createPolicy);
-router.put("/:id", updatePolicy);
-router.delete("/:id", deletePolicy);
+// Admin: full CRUD list with filters (kind, isActive) — yêu cầu auth
+router.get("/", authenticateToken, listPolicies);
+router.post("/", authenticateToken, createPolicy);
+router.put("/:id", authenticateToken, updatePolicy);
+router.delete("/:id", authenticateToken, deletePolicy);
 
 export default router;

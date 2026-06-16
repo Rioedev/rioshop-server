@@ -13,6 +13,9 @@ const orderItemSchema = new mongoose.Schema(
     variantLabel: { type: String, required: true },
     image: { type: String, required: true },
     unitPrice: { type: Number, required: true },
+    // Gia von trung binh tai thoi diem tao don. Dung de bao cao lai gop khong bi
+    // thay doi khi nhap hang dot sau voi gia von khac.
+    costPriceSnapshot: { type: Number, default: 0 },
     // listPrice = giá niêm yết tại thời điểm đặt (để dựng lại "giảm bao nhiêu")
     listPrice: { type: Number, default: 0 },
     // priceSource = "regular" | "flash_sale" — đơn này áp giá gì
@@ -31,6 +34,24 @@ const timelineSchema = new mongoose.Schema(
     note: String,
     at: { type: Date, default: Date.now },
     by: String,
+  },
+  { _id: false },
+);
+
+const exchangeItemSchema = new mongoose.Schema(
+  {
+    productId: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
+    productName: { type: String, required: true },
+    originalVariantSku: { type: String, required: true },
+    originalVariantLabel: { type: String, required: true },
+    replacementVariantSku: { type: String, required: true },
+    replacementVariantLabel: { type: String, required: true },
+    quantity: { type: Number, required: true, min: 1 },
+    returnDisposition: {
+      type: String,
+      enum: ["restock", "quarantine"],
+      required: true,
+    },
   },
   { _id: false },
 );
@@ -56,6 +77,7 @@ const returnRequestSchema = new mongoose.Schema(
       ref: "Order",
     },
     replacementOrderNumber: String,
+    exchangeItems: [exchangeItemSchema],
   },
   { _id: false },
 );
@@ -100,6 +122,11 @@ const orderSchema = new mongoose.Schema({
   shippingAddress: { type: shippingAddressSchema, required: true },
   pricing: pricingSchema,
   couponCode: String,
+  couponType: {
+    type: String,
+    enum: ["percent", "fixed", "free_ship", "gift", null],
+    default: null,
+  },
   couponDiscount: Number,
   loyaltyPointsUsed: Number,
   loyaltyPointsEarned: Number,

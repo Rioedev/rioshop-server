@@ -40,6 +40,7 @@ categorySchema.index(
   },
 );
 categorySchema.index({ parentId: 1, position: 1 });
+categorySchema.index({ "ancestors._id": 1 });
 categorySchema.index({ path: 1 });
 categorySchema.index({ isActive: 1 });
 categorySchema.index({ deletedAt: 1 });

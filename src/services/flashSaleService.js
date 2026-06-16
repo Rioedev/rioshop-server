@@ -27,7 +27,12 @@ export class FlashSaleService {
           .sort(sort)
           .skip(skip)
           .limit(limit)
-          .populate([{ path: "slots.productId", select: "_id name slug media" }]),
+          .populate([
+            {
+              path: "slots.productId",
+              select: "_id name slug brand media pricing category collections status variants",
+            },
+          ]),
         FlashSale.countDocuments(query),
       ]);
 

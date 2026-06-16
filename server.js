@@ -40,6 +40,10 @@ import blogRoutes from "./src/routes/blogs.js";
 import aiRecommendationRoutes from "./src/routes/aiRecommendations.js";
 import policyRoutes from "./src/routes/policies.js";
 import reportRoutes from "./src/routes/reports.js";
+import supplierRoutes from "./src/routes/suppliers.js";
+import purchaseOrderRoutes from "./src/routes/purchaseOrders.js";
+import inventoryAdjustmentRoutes from "./src/routes/inventoryAdjustments.js";
+import defectiveInventoryRoutes from "./src/routes/defectiveInventory.js";
 import orderLifecycleAutomationService from "./src/services/orderLifecycleAutomationService.js";
 import shipmentLifecycleAutomationService from "./src/services/shipmentLifecycleAutomationService.js";
 import notificationLifecycleAutomationService from "./src/services/notificationLifecycleAutomationService.js";
@@ -137,6 +141,10 @@ app.use("/api/blogs", blogRoutes);
 app.use("/api/ai", aiRecommendationRoutes);
 app.use("/api/policies", policyRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api/suppliers", supplierRoutes);
+app.use("/api/purchase-orders", purchaseOrderRoutes);
+app.use("/api/inventory-adjustments", inventoryAdjustmentRoutes);
+app.use("/api/defective-inventory", defectiveInventoryRoutes);
 
 // Health check endpoint
 app.get("/health", (req, res) => {

@@ -228,6 +228,8 @@ export class AuthService {
       // Generate token
       const token = generateToken({
         adminId: admin._id.toString(),
+        email: admin.email,
+        fullName: admin.fullName,
         role: normalizedRole,
         permissions: admin.permissions,
       });

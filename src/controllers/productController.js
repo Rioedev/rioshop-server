@@ -10,6 +10,7 @@ import Product from "../models/Product.js";
 import Category from "../models/Category.js";
 import Collection from "../models/Collection.js";
 import productService from "../services/productService.js";
+import pricingService from "../services/pricingService.js";
 import { uploadToCloudinary } from "../utils/cloudinary.js";
 import { normalizeSkuInput } from "../utils/productSku.js";
 
@@ -34,6 +35,20 @@ const XLSX_MIME_TYPES = new Set([
 const PRODUCT_STATUS_SET = new Set(["draft", "active", "archived", "out_of_stock"]);
 const PRODUCT_GENDER_SET = new Set(["men", "women", "unisex", "kids"]);
 const PRODUCT_AGE_GROUP_SET = new Set(["adult", "teen", "kids", "baby"]);
+const pickLegacyAwarePrice = (canonical, legacy) => {
+  const canonicalNumber = Number(canonical);
+  const legacyNumber = Number(legacy);
+
+  if (Number.isFinite(canonicalNumber) && canonicalNumber > 0) return canonicalNumber;
+  if (Number.isFinite(legacyNumber) && legacyNumber > 0) return legacyNumber;
+  if (Number.isFinite(canonicalNumber)) return canonicalNumber;
+  if (Number.isFinite(legacyNumber)) return legacyNumber;
+  return 0;
+};
+const getRegularPrice = (pricing = {}) =>
+  pickLegacyAwarePrice(pricing.regularPrice, pricing.salePrice);
+const getCompareAtPrice = (pricing = {}) =>
+  pickLegacyAwarePrice(pricing.compareAtPrice, pricing.basePrice);
 
 const EXPORT_COLUMNS = [
   { key: "productSku", header: "productSku", width: 24 },
@@ -47,8 +62,8 @@ const EXPORT_COLUMNS = [
   { key: "collectionIds", header: "collectionIds", width: 26 },
   { key: "collectionNames", header: "collectionNames", width: 26 },
   { key: "collectionSlugs", header: "collectionSlugs", width: 26 },
-  { key: "basePrice", header: "basePrice", width: 12, style: { numFmt: "#,##0" } },
-  { key: "salePrice", header: "salePrice", width: 12, style: { numFmt: "#,##0" } },
+  { key: "regularPrice", header: "regularPrice", width: 14, style: { numFmt: "#,##0" } },
+  { key: "compareAtPrice", header: "compareAtPrice", width: 16, style: { numFmt: "#,##0" } },
   { key: "gender", header: "gender", width: 10 },
   { key: "ageGroup", header: "ageGroup", width: 10 },
   { key: "material", header: "material", width: 22 },
@@ -80,7 +95,7 @@ const COLUMN_GUIDE = [
   ["categoryId", "B\u1EAFt bu\u1ED9c. C\u00F3 th\u1EC3 \u0111i\u1EC1n ObjectId c\u1EE7a category ho\u1EB7c categorySlug."],
   ["categoryName / categorySlug", "Ch\u1EC9 \u0111\u1EC3 tham kh\u1EA3o khi xu\u1EA5t, h\u1EC7 th\u1ED1ng kh\u00F4ng \u0111\u1ECDc khi nh\u1EADp."],
   ["collectionIds", "T\u00F9y ch\u1ECDn. ObjectId ho\u1EB7c slug, nhi\u1EC1u gi\u00E1 tr\u1ECB c\u00E1ch nhau b\u1EB1ng d\u1EA5u |"],
-  ["basePrice / salePrice", "S\u1ED1 nguy\u00EAn VND. salePrice ph\u1EA3i \u2264 basePrice."],
+  ["regularPrice / compareAtPrice", "regularPrice l\u00E0 gi\u00E1 b\u00E1n th\u01B0\u1EDDng ng\u00E0y. compareAtPrice l\u00E0 gi\u00E1 tham chi\u1EBFu/ni\u00EAm y\u1EBFt, t\u00F9y ch\u1ECDn v\u00E0 ph\u1EA3i >= regularPrice n\u1EBFu c\u00F3 nh\u1EADp."],
   ["gender", "men | women | unisex | kids."],
   ["ageGroup", "adult | teen | kids | baby."],
   ["material / care / seoKeywords", "Nhi\u1EC1u gi\u00E1 tr\u1ECB c\u00E1ch nhau b\u1EB1ng d\u1EA5u |"],
@@ -292,7 +307,19 @@ const toSafeBoolean = (value, fallback = true) => {
 
 const normalizeSkuValue = (value) => normalizeSkuInput(String(value ?? ""));
 
-const normalizeQueryFilters = (query = {}) => {
+const resolveCategoryFilter = async (categoryId) => {
+  const categories = await Category.find({
+    deletedAt: null,
+    $or: [{ _id: categoryId }, { "ancestors._id": categoryId }],
+  })
+    .select("_id")
+    .lean();
+
+  const categoryIds = categories.map((item) => item._id);
+  return categoryIds.length > 0 ? { $in: categoryIds } : categoryId;
+};
+
+const normalizeQueryFilters = async (query = {}) => {
   const {
     q,
     category,
@@ -303,13 +330,29 @@ const normalizeQueryFilters = (query = {}) => {
     color,
     size,
     status = "active",
+    newWithinDays,
   } = query;
 
   const filters = {};
   if (status && status !== "all") filters.status = status;
-  if (category) filters["category._id"] = category;
+  if (category) filters["category._id"] = await resolveCategoryFilter(category);
   if (collection) filters["collections._id"] = collection;
   if (gender) filters.gender = gender;
+  if (newWithinDays !== undefined) {
+    const safeDays = Math.max(1, Math.min(365, Number(newWithinDays) || 30));
+    const cutoff = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000);
+    filters.$and = [
+      ...(filters.$and ?? []),
+      {
+        $expr: {
+          $and: [
+            { $gte: [{ $ifNull: ["$publishedAt", "$createdAt"] }, cutoff] },
+            { $lte: [{ $ifNull: ["$publishedAt", "$createdAt"] }, new Date()] },
+          ],
+        },
+      },
+    ];
+  }
 
   const keyword = String(q ?? "").trim();
   if (keyword) {
@@ -328,12 +371,25 @@ const normalizeQueryFilters = (query = {}) => {
     ];
   }
   if (minPrice !== undefined || maxPrice !== undefined) {
-    filters["pricing.salePrice"] = {};
+    const priceExpr = {
+      $cond: [
+        { $gt: [{ $ifNull: ["$pricing.regularPrice", 0] }, 0] },
+        "$pricing.regularPrice",
+        { $ifNull: ["$pricing.salePrice", 0] },
+      ],
+    };
+    const priceConditions = [];
     if (minPrice !== undefined) {
-      filters["pricing.salePrice"].$gte = Number(minPrice);
+      priceConditions.push({ $gte: [priceExpr, Number(minPrice)] });
     }
     if (maxPrice !== undefined) {
-      filters["pricing.salePrice"].$lte = Number(maxPrice);
+      priceConditions.push({ $lte: [priceExpr, Number(maxPrice)] });
+    }
+    if (priceConditions.length > 0) {
+      filters.$and = [
+        ...(filters.$and ?? []),
+        { $expr: priceConditions.length === 1 ? priceConditions[0] : { $and: priceConditions } },
+      ];
     }
   }
 
@@ -381,7 +437,7 @@ const normalizeSort = (sortRaw) => {
 
 export const getAllProducts = asyncHandler(async (req, res) => {
   const { page, limit } = getPaginationParams(req.query.page, req.query.limit);
-  const filters = normalizeQueryFilters(req.query);
+  const filters = await normalizeQueryFilters(req.query);
 
   let parsedSort = { createdAt: -1 };
   try {
@@ -390,11 +446,22 @@ export const getAllProducts = asyncHandler(async (req, res) => {
     return sendError(res, 400, "Invalid sort format");
   }
 
-  const products = await productService.getAllProducts(filters, {
-    page,
-    limit,
-    sort: parsedSort,
-  });
+  const products =
+    req.query.ranking === "best_selling"
+      ? await productService.getBestSellingProducts(filters, {
+          page,
+          limit,
+        })
+      : req.query.newWithinDays !== undefined
+        ? await productService.getNewArrivalProducts(filters, {
+            page,
+            limit,
+          })
+      : await productService.getAllProducts(filters, {
+          page,
+          limit,
+          sort: parsedSort,
+        });
 
   sendSuccess(res, 200, products, "Products fetched successfully");
 });
@@ -410,7 +477,7 @@ const sendXlsxResponse = async (res, workbook, fileName) => {
 };
 
 export const exportProductsXlsx = asyncHandler(async (req, res) => {
-  const filters = normalizeQueryFilters(req.query);
+  const filters = await normalizeQueryFilters(req.query);
   let parsedSort = { createdAt: -1 };
   try {
     parsedSort = normalizeSort(req.query.sort);
@@ -456,8 +523,8 @@ export const exportProductsXlsx = asyncHandler(async (req, res) => {
           .map((item) => item?.slug ?? "")
           .filter(Boolean)
           .join("|"),
-        basePrice: Number(product.pricing?.basePrice ?? 0),
-        salePrice: Number(product.pricing?.salePrice ?? 0),
+        regularPrice: getRegularPrice(product.pricing),
+        compareAtPrice: getCompareAtPrice(product.pricing),
         gender: product.gender ?? "",
         ageGroup: product.ageGroup ?? "",
         material: (product.material ?? []).filter(Boolean).join("|"),
@@ -501,8 +568,8 @@ export const downloadProductsImportTemplateXlsx = asyncHandler(async (_req, res)
       collectionIds: "COLLECTION_ID_OR_COLLECTION_SLUG",
       collectionNames: "",
       collectionSlugs: "",
-      basePrice: 299000,
-      salePrice: 199000,
+      regularPrice: 199000,
+      compareAtPrice: 299000,
       gender: "men",
       ageGroup: "adult",
       material: "Cotton|Spandex",
@@ -536,8 +603,8 @@ export const downloadProductsImportTemplateXlsx = asyncHandler(async (_req, res)
       collectionIds: "COLLECTION_ID_OR_COLLECTION_SLUG",
       collectionNames: "",
       collectionSlugs: "",
-      basePrice: 299000,
-      salePrice: 199000,
+      regularPrice: 199000,
+      compareAtPrice: 299000,
       gender: "men",
       ageGroup: "adult",
       material: "Cotton|Spandex",
@@ -621,8 +688,8 @@ export const importProductsXlsx = asyncHandler(async (req, res) => {
         status: "",
         categoryToken: "",
         collectionTokens: new Set(),
-        basePriceRaw: "",
-        salePriceRaw: "",
+        regularPriceRaw: "",
+        compareAtPriceRaw: "",
         gender: "",
         ageGroup: "",
         materialRaw: "",
@@ -641,8 +708,8 @@ export const importProductsXlsx = asyncHandler(async (req, res) => {
     group.status ||= getRowValue(row, ["status"]);
     group.categoryToken ||=
       getRowValue(row, ["categoryId", "categorySlug", "category"]);
-    group.basePriceRaw ||= getRowValue(row, ["basePrice"]);
-    group.salePriceRaw ||= getRowValue(row, ["salePrice"]);
+    group.regularPriceRaw ||= getRowValue(row, ["regularPrice", "salePrice"]);
+    group.compareAtPriceRaw ||= getRowValue(row, ["compareAtPrice", "basePrice"]);
     group.gender ||= getRowValue(row, ["gender"]);
     group.ageGroup ||= getRowValue(row, ["ageGroup"]);
     group.materialRaw ||= getRowValue(row, ["material"]);
@@ -775,13 +842,13 @@ export const importProductsXlsx = asyncHandler(async (req, res) => {
         throw new Error(`Category not found: ${categoryToken}`);
       }
 
-      const basePrice = toSafeNumber(group.basePriceRaw, NaN);
-      const salePrice = toSafeNumber(group.salePriceRaw, NaN);
-      if (!Number.isFinite(basePrice) || !Number.isFinite(salePrice)) {
-        throw new Error("Invalid basePrice or salePrice");
+      const regularPrice = toSafeNumber(group.regularPriceRaw, NaN);
+      const compareAtPrice = toSafeNumber(group.compareAtPriceRaw, 0);
+      if (!Number.isFinite(regularPrice)) {
+        throw new Error("Invalid regularPrice");
       }
-      if (salePrice > basePrice) {
-        throw new Error("salePrice must be less than or equal to basePrice");
+      if (compareAtPrice > 0 && compareAtPrice < regularPrice) {
+        throw new Error("compareAtPrice must be greater than or equal to regularPrice");
       }
 
       const collectionRefs = [];
@@ -857,8 +924,8 @@ export const importProductsXlsx = asyncHandler(async (req, res) => {
         },
         collections: collectionRefs,
         pricing: {
-          basePrice,
-          salePrice,
+          regularPrice,
+          compareAtPrice,
           currency: "VND",
         },
         status: PRODUCT_STATUS_SET.has(group.status) ? group.status : "draft",
@@ -925,7 +992,8 @@ export const getProductBySlug = asyncHandler(async (req, res) => {
     viewCount: (product.viewCount || 0) + 1,
   });
 
-  sendSuccess(res, 200, product, "Product fetched successfully");
+  const pricedProduct = await pricingService.attachEffectivePricing(product);
+  sendSuccess(res, 200, pricedProduct, "Product fetched successfully");
 });
 
 export const searchProducts = asyncHandler(async (req, res) => {
@@ -1009,4 +1077,12 @@ export const getRelatedProducts = asyncHandler(async (req, res) => {
     6,
   );
   sendSuccess(res, 200, relatedProducts, "Related products fetched");
+});
+
+export const getCartRecommendations = asyncHandler(async (req, res) => {
+  const recommendations = await productService.getCartRecommendations(
+    req.body.productIds,
+    req.body.limit,
+  );
+  sendSuccess(res, 200, recommendations, "Cart recommendations fetched");
 });

@@ -2,6 +2,7 @@ import Order from "../models/Order.js";
 import User from "../models/User.js";
 import Product from "../models/Product.js";
 import Inventory from "../models/Inventory.js";
+import DefectiveInventory from "../models/DefectiveInventory.js";
 import Shipment from "../models/Shipment.js";
 import couponService from "./couponService.js";
 import pricingService from "./pricingService.js";
@@ -124,7 +125,7 @@ export class OrderService {
         populate: [
           { path: "paymentId" },
           { path: "shipmentId" },
-          { path: "items.productId", select: "_id name slug media" },
+          { path: "items.productId", select: "_id name slug media variants" },
         ],
       });
       return this.decoratePaginatedOrders(paginatedOrders);
@@ -143,7 +144,7 @@ export class OrderService {
       const order = await Order.findOne(query).populate([
         { path: "paymentId" },
         { path: "shipmentId" },
-        { path: "items.productId", select: "_id name slug media" },
+        { path: "items.productId", select: "_id name slug media variants" },
       ]);
       return this.decorateOrder(order);
     } catch (error) {
@@ -170,8 +171,32 @@ export class OrderService {
     const plainOrder = typeof order.toObject === "function" ? order.toObject() : { ...order };
     const carrierStatus = resolveCarrierStatusForOrder(plainOrder);
 
+    const items = (plainOrder.items || []).map((item) => {
+      const populatedProduct =
+        item.productId && typeof item.productId === "object" && item.productId._id
+          ? item.productId
+          : null;
+
+      return {
+        ...item,
+        productId: populatedProduct?._id?.toString?.() || item.productId?.toString?.() || item.productId,
+        availableVariants: populatedProduct
+          ? (populatedProduct.variants || [])
+              .filter((variant) => variant.isActive !== false)
+              .map((variant) => ({
+                sku: (variant.sku || "").toString().trim(),
+                label: this.buildVariantLabel(variant),
+                size: (variant.sizeLabel || variant.size || "").toString().trim(),
+                colorName: (variant.color?.name || "").toString().trim(),
+                stock: Math.max(0, Number(variant.stock || 0)),
+              }))
+          : [],
+      };
+    });
+
     return {
       ...plainOrder,
+      items,
       orderStatus: plainOrder.status || "",
       carrierStatus,
       customerStatus: resolveCustomerStatus({
@@ -205,14 +230,18 @@ export class OrderService {
     }
 
     if (this.shouldUseGhnShipping(shippingMethod, shippingCarrier)) {
-      const ghnShippingQuote = await this.resolveGhnShippingQuote({
-        items,
-        shippingAddress: data.shippingAddress || {},
-        shippingMethod,
-        subtotal,
-      });
-      if (Number.isFinite(ghnShippingQuote?.rawShippingFee)) {
-        rawShippingFeeInput = Number(ghnShippingQuote.rawShippingFee || 0);
+      try {
+        const ghnShippingQuote = await this.resolveGhnShippingQuote({
+          items,
+          shippingAddress: data.shippingAddress || {},
+          shippingMethod,
+          subtotal,
+        });
+        if (Number.isFinite(ghnShippingQuote?.rawShippingFee)) {
+          rawShippingFeeInput = Number(ghnShippingQuote.rawShippingFee || 0);
+        }
+      } catch {
+        rawShippingFeeInput = GHNShippingService.getGhnFallbackFee(shippingMethod);
       }
     }
     const shippingQuote = GHNShippingService.calculateShippingQuote({
@@ -224,6 +253,7 @@ export class OrderService {
 
     let couponCode = data.couponCode || null;
     let couponDiscount = Number(data.couponDiscount || 0);
+    let couponType = null;
     let couponId = null;
 
     if (couponCode) {
@@ -240,6 +270,7 @@ export class OrderService {
 
       couponCode = validation.coupon.code;
       couponDiscount = validation.discount;
+      couponType = validation.coupon.type || null;
       couponId = validation.coupon._id;
     }
 
@@ -275,6 +306,7 @@ export class OrderService {
           shippingAddress: data.shippingAddress || {},
           pricing,
           couponCode,
+          couponType,
           couponDiscount,
           loyaltyPointsUsed: Number(data.loyaltyPointsUsed || 0),
           loyaltyPointsEarned,
@@ -458,8 +490,16 @@ export class OrderService {
         }
 
         const isCompletingOrder = nextStatus === "completed" && order.status !== "completed";
+        if (nextStatus === "returned" && order.returnRequest?.type === "exchange") {
+          throw new AppError(
+            "Exchange orders must be completed through the exchange request workflow",
+            400,
+          );
+        }
         this.assertStatusTransition(order.status, nextStatus);
-        await this.applyInventoryForStatusTransition(order.items || [], order.status, nextStatus, session);
+        await this.applyInventoryForStatusTransition(order.items || [], order.status, nextStatus, session, {
+          affectSales: !order.exchangeMeta?.isReplacement,
+        });
 
         order.status = nextStatus;
 
@@ -576,7 +616,9 @@ export class OrderService {
 
         previousStatus = order.status;
         this.assertStatusTransition(order.status, "cancelled");
-        await this.applyInventoryForStatusTransition(order.items || [], order.status, "cancelled", session);
+        await this.applyInventoryForStatusTransition(order.items || [], order.status, "cancelled", session, {
+          affectSales: !order.exchangeMeta?.isReplacement,
+        });
 
         order.status = "cancelled";
         order.timeline = order.timeline || [];
@@ -727,7 +769,13 @@ export class OrderService {
   }
 
   async updateReturnRequestStatus(orderId, status, payload = {}) {
-    const { note = "", updatedBy = "admin" } = payload;
+    const {
+      note = "",
+      exchangeItems = [],
+      updatedBy = "admin",
+      updatedByAdminId = null,
+      updatedByAdminName = "",
+    } = payload;
     const nextStatus = (status || "").toString().trim().toLowerCase();
     const normalizedNote = (note || "").toString().trim();
 
@@ -788,11 +836,64 @@ export class OrderService {
           }
 
           if (!replacementOrder) {
+            const exchangePlan = await this.buildExchangePlan(order, exchangeItems, session);
+
+            if (exchangePlan.restockItems.length > 0) {
+              await this.applyInventoryAction(exchangePlan.restockItems, "restock_no_sale", session);
+            }
+
+            const quarantinedItems = exchangePlan.auditItems.filter(
+              (item) => item.returnDisposition === "quarantine",
+            );
+            if (quarantinedItems.length > 0) {
+              await DefectiveInventory.insertMany(
+                quarantinedItems.map((item) => ({
+                  sourceType: "exchange_return",
+                  sourceOrderId: order._id,
+                  sourceOrderNumber: order.orderNumber || "",
+                  productId: item.productId,
+                  productNameSnapshot: item.productName,
+                  variantSku: item.originalVariantSku,
+                  variantLabelSnapshot: item.originalVariantLabel,
+                  image:
+                    order.items.find(
+                      (line) =>
+                        line.productId?.toString?.() === item.productId.toString() &&
+                        line.variantSku === item.originalVariantSku,
+                    )?.image || "",
+                  quantity: item.quantity,
+                  reason: order.returnRequest?.reason || "",
+                  evidenceImages: order.returnRequest?.images || [],
+                  status: "pending_inspection",
+                  warehouseId: SINGLE_WAREHOUSE_ID,
+                  warehouseName: SINGLE_WAREHOUSE_NAME,
+                  createdBy: updatedByAdminId,
+                  createdByName: updatedByAdminName,
+                  timeline: [
+                    {
+                      status: "pending_inspection",
+                      note: "Tiếp nhận từ yêu cầu đổi hàng",
+                      by: updatedByAdminId,
+                      byName: updatedByAdminName,
+                    },
+                  ],
+                })),
+                session ? { session } : undefined,
+              );
+            }
+
+            for (const processedItem of exchangePlan.processedItems) {
+              processedItem.sourceItem.returnedQty =
+                Number(processedItem.sourceItem.returnedQty || 0) + processedItem.quantity;
+            }
+
             replacementOrder = await this.createReplacementOrderForExchange(order, {
               session,
               note: normalizedNote,
               createdBy: updatedBy,
+              items: exchangePlan.replacementItems,
             });
+            order.returnRequest.exchangeItems = exchangePlan.auditItems;
           }
 
           if (replacementOrder?._id) {
@@ -880,8 +981,119 @@ export class OrderService {
     return refreshedOrder;
   }
 
-  async createReplacementOrderForExchange(order, { session, note = "", createdBy = "admin" } = {}) {
+  async buildExchangePlan(order, exchangeItems = [], session) {
+    if (!Array.isArray(exchangeItems) || exchangeItems.length === 0) {
+      throw new AppError("Exchange items are required to complete exchange", 400);
+    }
+
     const sourceItems = Array.isArray(order?.items) ? order.items : [];
+    const productIds = [
+      ...new Set(exchangeItems.map((item) => (item.productId || "").toString().trim()).filter(Boolean)),
+    ];
+    const products = await Product.find({ _id: { $in: productIds }, deletedAt: null })
+      .select("_id name variants media")
+      .session(session);
+    const productMap = new Map(products.map((product) => [product._id.toString(), product]));
+    const processedKeys = new Set();
+    const replacementItems = [];
+    const restockItems = [];
+    const auditItems = [];
+    const processedItems = [];
+
+    for (const requestedItem of exchangeItems) {
+      const productId = (requestedItem.productId || "").toString().trim();
+      const originalVariantSku = (requestedItem.originalVariantSku || "").toString().trim();
+      const replacementVariantSku = (requestedItem.replacementVariantSku || "").toString().trim();
+      const quantity = Number(requestedItem.quantity || 0);
+      const returnDisposition = (requestedItem.returnDisposition || "").toString().trim().toLowerCase();
+      const itemKey = `${productId}::${originalVariantSku}`;
+
+      if (processedKeys.has(itemKey)) {
+        throw new AppError(`Duplicate exchange item ${originalVariantSku}`, 400);
+      }
+      processedKeys.add(itemKey);
+
+      const sourceItem = sourceItems.find(
+        (item) =>
+          item.productId?.toString?.() === productId &&
+          (item.variantSku || "").toString().trim() === originalVariantSku,
+      );
+      if (!sourceItem) {
+        throw new AppError(`Original variant ${originalVariantSku} is not in order`, 400);
+      }
+
+      const remainingQuantity = Math.max(
+        0,
+        Number(sourceItem.quantity || 0) - Number(sourceItem.returnedQty || 0),
+      );
+      if (!Number.isInteger(quantity) || quantity <= 0 || quantity > remainingQuantity) {
+        throw new AppError(`Invalid exchange quantity for variant ${originalVariantSku}`, 400);
+      }
+      if (!new Set(["restock", "quarantine"]).has(returnDisposition)) {
+        throw new AppError(`Invalid return disposition for variant ${originalVariantSku}`, 400);
+      }
+
+      const product = productMap.get(productId);
+      if (!product) {
+        throw new AppError(`Product ${productId} not found`, 404);
+      }
+      const originalVariant = (product.variants || []).find(
+        (variant) => (variant.sku || "").toString().trim() === originalVariantSku,
+      );
+      const replacementVariant = (product.variants || []).find(
+        (variant) =>
+          variant.isActive !== false &&
+          (variant.sku || "").toString().trim() === replacementVariantSku,
+      );
+      if (!originalVariant) {
+        throw new AppError(`Variant ${originalVariantSku} not found`, 400);
+      }
+      if (!replacementVariant) {
+        throw new AppError(`Replacement variant ${replacementVariantSku} not found`, 400);
+      }
+
+      const replacementVariantLabel = this.buildVariantLabel(replacementVariant);
+      const replacementImage =
+        replacementVariant.images?.[0] ||
+        replacementVariant.color?.imageUrl ||
+        product.media?.find((mediaItem) => mediaItem.type === "image" && mediaItem.url)?.url ||
+        sourceItem.image ||
+        "";
+
+      replacementItems.push({
+        productId,
+        variantSku: replacementVariantSku,
+        productName: sourceItem.productName || product.name || "Sản phẩm đổi",
+        variantLabel: replacementVariantLabel,
+        image: replacementImage,
+        quantity,
+      });
+
+      if (returnDisposition === "restock") {
+        restockItems.push({ productId, variantSku: originalVariantSku, quantity });
+      }
+
+      auditItems.push({
+        productId,
+        productName: sourceItem.productName || product.name || "Sản phẩm đổi",
+        originalVariantSku,
+        originalVariantLabel: sourceItem.variantLabel || this.buildVariantLabel(originalVariant),
+        replacementVariantSku,
+        replacementVariantLabel,
+        quantity,
+        returnDisposition,
+      });
+      processedItems.push({ sourceItem, quantity });
+    }
+
+    return { replacementItems, restockItems, auditItems, processedItems };
+  }
+
+  async createReplacementOrderForExchange(
+    order,
+    { session, note = "", createdBy = "admin", items = [] } = {},
+  ) {
+    const sourceItems = Array.isArray(items) ? items : [];
     if (sourceItems.length === 0) {
       throw new AppError("Order must contain at least one item", 400);
     }
@@ -893,6 +1105,7 @@ export class OrderService {
       variantLabel: (item.variantLabel || "").toString().trim() || "Mặc định",
       image: (item.image || "").toString().trim(),
       unitPrice: 0,
+      costPriceSnapshot: Number(item.costPriceSnapshot || 0),
       quantity: Number(item.quantity || 0),
       totalPrice: 0,
       returnedQty: 0,
@@ -1217,11 +1430,12 @@ export class OrderService {
         variantSku: (item.variantSku || "").toString().trim(),
         productName: (item.productName || "").toString().trim(),
         variantLabel: (item.variantLabel || "").toString().trim(),
-        image: (item.image || "").toString().trim(),
-        unitPrice: Number(item.unitPrice || 0),
-        quantity,
-        totalPrice: Number(item.totalPrice || 0),
-        returnedQty: Number(item.returnedQty || 0),
+      image: (item.image || "").toString().trim(),
+      unitPrice: Number(item.unitPrice || 0),
+      costPriceSnapshot: Number(item.costPriceSnapshot || 0),
+      quantity,
+      totalPrice: Number(item.totalPrice || 0),
+      returnedQty: Number(item.returnedQty || 0),
       };
     });
   }
@@ -1271,6 +1485,7 @@ export class OrderService {
 
       const priced = await pricingService.resolveEffectivePrice(product, variant);
       const unitPrice = priced.unitPrice;
+      const costPriceSnapshot = Math.max(0, Number(product.pricing?.costPrice || 0));
       const key = `${product._id.toString()}::${variant.sku}`;
       const fallbackImage =
         variant.images?.[0] ||
@@ -1294,6 +1509,7 @@ export class OrderService {
         variantLabel,
         image: fallbackImage,
         unitPrice,
+        costPriceSnapshot,
         listPrice: priced.listPrice,
         priceSource: priced.priceSource,
         flashSaleId: priced.flashSaleId,
@@ -1358,7 +1574,13 @@ export class OrderService {
     }
   }
 
-  async applyInventoryForStatusTransition(items, currentStatus, nextStatus, session) {
+  async applyInventoryForStatusTransition(
+    items,
+    currentStatus,
+    nextStatus,
+    session,
+    { affectSales = true } = {},
+  ) {
     if (currentStatus === nextStatus) {
       return;
     }
@@ -1374,7 +1596,7 @@ export class OrderService {
 
     if (currentReserved && !nextReserved) {
       if (nextCommitted) {
-        await this.applyInventoryAction(items, "commit", session);
+        await this.applyInventoryAction(items, affectSales ? "commit" : "commit_no_sale", session);
       } else {
         await this.applyInventoryAction(items, "release", session);
       }
@@ -1388,13 +1610,13 @@ export class OrderService {
 
     if (currentCommitted && !nextCommitted) {
       if (nextStatus === "cancelled" || nextStatus === "returned") {
-        await this.applyInventoryAction(items, "restock", session);
+        await this.applyInventoryAction(items, affectSales ? "restock" : "restock_no_sale", session);
       }
       return;
     }
 
     if (!currentCommitted && !currentReserved && nextCommitted) {
-      await this.applyInventoryAction(items, "sell", session);
+      await this.applyInventoryAction(items, affectSales ? "sell" : "sell_no_sale", session);
     }
   }
 
@@ -1445,18 +1667,24 @@ export class OrderService {
         } else if (action === "release") {
           variant.stock = Number(variant.stock || 0) + quantity;
           reservedDelta -= quantity;
-        } else if (action === "commit") {
+        } else if (action === "commit" || action === "commit_no_sale") {
           reservedDelta -= quantity;
-          soldDelta += quantity;
-        } else if (action === "sell") {
+          if (action === "commit") {
+            soldDelta += quantity;
+          }
+        } else if (action === "sell" || action === "sell_no_sale") {
           if (Number(variant.stock || 0) < quantity) {
             throw new AppError(`Variant ${variantSku} is out of stock`, 409);
           }
           variant.stock = Number(variant.stock || 0) - quantity;
-          soldDelta += quantity;
-        } else if (action === "restock") {
+          if (action === "sell") {
+            soldDelta += quantity;
+          }
+        } else if (action === "restock" || action === "restock_no_sale") {
           variant.stock = Number(variant.stock || 0) + quantity;
-          soldDelta -= quantity;
+          if (action === "restock") {
+            soldDelta -= quantity;
+          }
         }
 
         await this.syncSingleWarehouseInventoryForOrderAction({
@@ -1526,7 +1754,7 @@ export class OrderService {
 
     if (!inventory) {
       let initialReserved = 0;
-      if (action === "reserve" || action === "commit") {
+      if (action === "reserve" || action === "commit" || action === "commit_no_sale") {
         initialReserved = safeQuantity;
       }
 
@@ -1546,7 +1774,7 @@ export class OrderService {
 
     if (action === "reserve") {
       inventory.reserved = Math.max(0, Number(inventory.reserved || 0) + safeQuantity);
-    } else if (action === "release" || action === "commit") {
+    } else if (action === "release" || action === "commit" || action === "commit_no_sale") {
       inventory.reserved = Math.max(0, Number(inventory.reserved || 0) - safeQuantity);
     }
 
@@ -1843,4 +2071,3 @@ export class OrderService {
 }
 
 export default new OrderService();
-

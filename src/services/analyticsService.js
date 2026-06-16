@@ -37,6 +37,78 @@ const REVENUE_MATCH_CONDITION = {
   ],
 };
 
+const merchandiseDiscountExpression = {
+  $cond: [
+    { $eq: ["$couponType", "free_ship"] },
+    0,
+    {
+      $min: [
+        { $ifNull: ["$pricing.discount", 0] },
+        { $ifNull: ["$pricing.subtotal", 0] },
+      ],
+    },
+  ],
+};
+
+const discountedSubtotalExpression = {
+  $cond: [
+    { $gt: [{ $ifNull: ["$pricing.subtotal", 0] }, 0] },
+    {
+      $cond: [
+        {
+          $gt: [
+            {
+              $subtract: [
+                { $ifNull: ["$pricing.subtotal", 0] },
+                merchandiseDiscountExpression,
+              ],
+            },
+            0,
+          ],
+        },
+        {
+          $subtract: [
+            { $ifNull: ["$pricing.subtotal", 0] },
+            merchandiseDiscountExpression,
+          ],
+        },
+        0,
+      ],
+    },
+    0,
+  ],
+};
+
+const lineGrossExpression = {
+  $ifNull: [
+    "$items.totalPrice",
+    {
+      $multiply: [
+        { $ifNull: ["$items.unitPrice", 0] },
+        { $ifNull: ["$items.quantity", 0] },
+      ],
+    },
+  ],
+};
+
+const lineRevenueExpression = {
+  $cond: [
+    { $gt: [{ $ifNull: ["$pricing.subtotal", 0] }, 0] },
+    {
+      $multiply: [
+        lineGrossExpression,
+        {
+          $divide: [
+            discountedSubtotalExpression,
+            { $ifNull: ["$pricing.subtotal", 0] },
+          ],
+        },
+      ],
+    },
+    lineGrossExpression,
+  ],
+};
+
 const toDateKey = (date) => date.toISOString().slice(0, 10);
 const formatDateLabel = (dateKey) => {
   const parts = dateKey.split("-");
@@ -151,6 +223,7 @@ export class AnalyticsService {
     const endDate = range.endDate ? new Date(range.endDate) : now;
     const orderRangeMatch = {
       createdAt: { $gte: startDate, $lte: endDate },
+      ...NON_REPLACEMENT_ORDER_QUERY,
     };
     const pendingOver24hCutoff = new Date(now.getTime() - DAY_MS);
 
@@ -165,6 +238,7 @@ export class AnalyticsService {
         topCategoriesByRevenue,
         customerSegments,
         pendingOver24hOrders,
+        openOrders,
       ] = await Promise.all([
         AnalyticsEvent.aggregate([
           {
@@ -239,9 +313,15 @@ export class AnalyticsService {
                   grossRevenue: {
                     $sum: {
                       $cond: [
-                        NON_REPLACEMENT_ORDER_EXPR,
-                        { $ifNull: ["$pricing.total", 0] },
+                        { $in: ["$status", CANCELLED_ORDER_STATUSES] },
                         0,
+                        {
+                          $cond: [
+                            REVENUE_PAYMENT_CONDITION,
+                            { $ifNull: ["$pricing.subtotal", 0] },
+                            0,
+                          ],
+                        },
                       ],
                     },
                   },
@@ -253,7 +333,7 @@ export class AnalyticsService {
                           {
                             $cond: [
                               REVENUE_PAYMENT_CONDITION,
-                              { $ifNull: ["$pricing.total", 0] },
+                              discountedSubtotalExpression,
                               0,
                             ],
                           },
@@ -276,6 +356,25 @@ export class AnalyticsService {
                     },
                     returnedOrders: {
                       $sum: { $cond: [{ $eq: ["$status", "returned"] }, 1, 0] },
+                    },
+                    fulfilledOrders: {
+                      $sum: {
+                        $cond: [{ $in: ["$status", COMPLETED_ORDER_STATUSES] }, 1, 0],
+                      },
+                    },
+                    completedExchangeOrders: {
+                      $sum: {
+                        $cond: [
+                          {
+                            $and: [
+                              { $eq: ["$returnRequest.type", "exchange"] },
+                              { $eq: ["$returnRequest.status", "completed"] },
+                            ],
+                          },
+                          1,
+                          0,
+                        ],
+                      },
                     },
                     nonCancelledOrders: {
                       $sum: {
@@ -314,9 +413,15 @@ export class AnalyticsService {
               revenue: {
                 $sum: {
                   $cond: [
-                    NON_REPLACEMENT_ORDER_EXPR,
-                    { $ifNull: ["$pricing.total", 0] },
+                    { $in: ["$status", CANCELLED_ORDER_STATUSES] },
                     0,
+                    {
+                      $cond: [
+                        REVENUE_PAYMENT_CONDITION,
+                        { $ifNull: ["$pricing.subtotal", 0] },
+                        0,
+                      ],
+                    },
                   ],
                 },
               },
@@ -328,7 +433,7 @@ export class AnalyticsService {
                     {
                       $cond: [
                         REVENUE_PAYMENT_CONDITION,
-                        { $ifNull: ["$pricing.total", 0] },
+                        discountedSubtotalExpression,
                         0,
                       ],
                     },
@@ -373,7 +478,7 @@ export class AnalyticsService {
                     {
                       $cond: [
                         REVENUE_PAYMENT_CONDITION,
-                        { $ifNull: ["$pricing.total", 0] },
+                        discountedSubtotalExpression,
                         0,
                       ],
                     },
@@ -406,7 +511,7 @@ export class AnalyticsService {
             $group: {
               _id: "$items.productId",
               fallbackName: { $first: "$items.productName" },
-              revenue: { $sum: { $ifNull: ["$items.totalPrice", 0] } },
+              revenue: { $sum: lineRevenueExpression },
               quantity: { $sum: { $ifNull: ["$items.quantity", 0] } },
               orderIds: { $addToSet: "$_id" },
             },
@@ -476,7 +581,7 @@ export class AnalyticsService {
               categoryName: {
                 $ifNull: ["$product.category.name", "Khong phan loai"],
               },
-              lineRevenue: { $ifNull: ["$items.totalPrice", 0] },
+              lineRevenue: lineRevenueExpression,
               lineQuantity: { $ifNull: ["$items.quantity", 0] },
             },
           },
@@ -531,6 +636,7 @@ export class AnalyticsService {
                       $and: [
                         { $eq: ["$userId", "$$customerId"] },
                         { $lt: ["$createdAt", startDate] },
+                        NON_REPLACEMENT_ORDER_EXPR,
                       ],
                     },
                   },
@@ -561,6 +667,11 @@ export class AnalyticsService {
         Order.countDocuments({
           status: { $in: OPEN_ORDER_STATUSES },
           createdAt: { $lte: pendingOver24hCutoff },
+          ...NON_REPLACEMENT_ORDER_QUERY,
+        }),
+        Order.countDocuments({
+          status: { $in: OPEN_ORDER_STATUSES },
+          ...NON_REPLACEMENT_ORDER_QUERY,
         }),
       ]);
 
@@ -583,6 +694,8 @@ export class AnalyticsService {
         recognizedRevenueOrders: 0,
         cancelledOrders: 0,
         returnedOrders: 0,
+        fulfilledOrders: 0,
+        completedExchangeOrders: 0,
         nonCancelledOrders: 0,
       };
       const ordersByStatus = (orderInfo.byStatus || []).reduce((acc, item) => {
@@ -636,9 +749,9 @@ export class AnalyticsService {
       const safeGrossRevenue = Number(totals.grossRevenue || 0);
       const safeNetRevenue = Number(totals.netRevenue || 0);
       const safeRecognizedRevenueOrders = Number(totals.recognizedRevenueOrders || 0);
-      const safeNonCancelledOrders = Number(totals.nonCancelledOrders || 0);
       const safeCancelledOrders = Number(totals.cancelledOrders || 0);
-      const safeReturnedOrders = Number(totals.returnedOrders || 0);
+      const safeFulfilledOrders = Number(totals.fulfilledOrders || 0);
+      const safeCompletedExchangeOrders = Number(totals.completedExchangeOrders || 0);
 
       return {
         range: { startDate, endDate },
@@ -655,8 +768,10 @@ export class AnalyticsService {
               ? Number((safeNetRevenue / safeRecognizedRevenueOrders).toFixed(2))
               : 0,
           cancellationRate: safePercent(safeCancelledOrders, safeTotalOrders),
-          returnRate: safePercent(safeReturnedOrders, safeTotalOrders),
+          returnRate: safePercent(safeCompletedExchangeOrders, safeFulfilledOrders),
+          exchangeRate: safePercent(safeCompletedExchangeOrders, safeFulfilledOrders),
           pendingOver24hOrders: Number(pendingOver24hOrders || 0),
+          openOrders: Number(openOrders || 0),
           newCustomers: Number(customerSegment.newCustomers || 0),
           returningCustomers: Number(customerSegment.returningCustomers || 0),
         },
