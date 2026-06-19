@@ -16,10 +16,9 @@ export const getOrdersValidation = Joi.object({
         "delivered",
         "completed",
         "cancelled",
-        "returned",
       )
       .optional(),
-    paymentStatus: Joi.string().valid("pending", "paid", "refunded", "failed").optional(),
+    paymentStatus: Joi.string().valid("pending", "paid", "failed").optional(),
   }).required(),
 });
 
@@ -76,7 +75,7 @@ export const createOrderValidation = Joi.object({
     paymentMethod: Joi.string()
       .valid("cod", "bank_transfer", "momo", "vnpay", "zalopay", "card")
       .required(),
-    paymentStatus: Joi.string().valid("pending", "paid", "refunded", "failed").optional(),
+    paymentStatus: Joi.string().valid("pending", "paid", "failed").optional(),
     shippingMethod: Joi.string().valid("standard", "express", "same_day").required(),
     shippingCarrier: Joi.string().allow("", null).optional(),
     status: Joi.string()
@@ -89,7 +88,6 @@ export const createOrderValidation = Joi.object({
         "delivered",
         "completed",
         "cancelled",
-        "returned",
       )
       .optional(),
     note: Joi.string().allow("", null).optional(),
@@ -113,11 +111,10 @@ export const updateOrderStatusValidation = Joi.object({
         "delivered",
         "completed",
         "cancelled",
-        "returned",
       )
       .required(),
     note: Joi.string().allow("", null).optional(),
-    paymentStatus: Joi.string().valid("pending", "paid", "refunded", "failed").optional(),
+    paymentStatus: Joi.string().valid("pending", "paid", "failed").optional(),
   }).required(),
 });
 

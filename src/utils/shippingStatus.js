@@ -131,7 +131,7 @@ export const resolveCustomerStatus = ({
   }
 
   if (normalizedCarrierStatus === "returned" || normalizedOrderStatus === "returned") {
-    return "returned";
+    return "cancelled";
   }
 
   if (normalizedReturnRequestStatus === "pending" || normalizedReturnRequestStatus === "approved") {
@@ -151,7 +151,7 @@ export const resolveCustomerStatus = ({
   }
 
   if (RETURN_IN_PROGRESS_CARRIER_STATUSES.has(normalizedCarrierStatus)) {
-    return "return_in_progress";
+    return "issue";
   }
 
   if (ISSUE_CARRIER_STATUSES.has(normalizedCarrierStatus)) {

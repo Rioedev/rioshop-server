@@ -60,7 +60,6 @@ const ORDER_STATUSES = new Set([
   "delivered",
   "completed",
   "cancelled",
-  "returned",
 ]);
 
 const CANCELLABLE_STATUSES = new Set(["pending", "confirmed"]);
@@ -106,9 +105,9 @@ const ALLOWED_STATUS_TRANSITIONS = {
   confirmed: new Set(["packing", "ready_to_ship", "shipping", "cancelled"]),
   packing: new Set(["ready_to_ship", "shipping", "cancelled"]),
   ready_to_ship: new Set(["shipping", "cancelled"]),
-  shipping: new Set(["delivered", "returned", "cancelled"]),
-  delivered: new Set(["completed", "returned"]),
-  completed: new Set(["returned"]),
+  shipping: new Set(["delivered", "cancelled"]),
+  delivered: new Set(["completed"]),
+  completed: new Set(),
   cancelled: new Set(),
   returned: new Set(),
 };
@@ -503,12 +502,6 @@ export class OrderService {
         }
 
         const isCompletingOrder = nextStatus === "completed" && order.status !== "completed";
-        if (nextStatus === "returned" && order.returnRequest?.type === "exchange") {
-          throw new AppError(
-            "Exchange orders must be completed through the exchange request workflow",
-            400,
-          );
-        }
         this.assertStatusTransition(order.status, nextStatus);
         await this.applyInventoryForStatusTransition(order.items || [], order.status, nextStatus, session, {
           affectSales: !order.exchangeMeta?.isReplacement,
@@ -525,9 +518,6 @@ export class OrderService {
 
         if (nextPaymentStatus) {
           order.paymentStatus = nextPaymentStatus;
-        }
-        if (nextStatus === "returned" && order.returnRequest) {
-          order.returnRequest.status = "completed";
         }
         if (note) {
           order.adminNote = note;
@@ -835,12 +825,6 @@ export class OrderService {
         }
 
         const requestType = (order.returnRequest.type || "exchange").toString().trim().toLowerCase();
-        if (nextStatus === "completed" && requestType === "return" && order.status !== "returned") {
-          throw new AppError(
-            "Return request can only be completed after order is marked returned",
-            400,
-          );
-        }
 
         let replacementOrder = null;
         if (nextStatus === "completed" && requestType === "exchange") {

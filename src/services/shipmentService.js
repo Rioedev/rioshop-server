@@ -15,7 +15,9 @@ const SHIPMENT_TO_ORDER_STATUS = {
   in_transit: "shipping",
   out_for_delivery: "shipping",
   delivered: "delivered",
-  returned: "returned",
+  // Carrier return means delivery failed and the parcel came back to the shop.
+  // RioShop does not support customer return/refund; close the sales order as cancelled.
+  returned: "cancelled",
 };
 const ACTIVE_SHIPMENT_STATUSES = new Set([
   "ready",
