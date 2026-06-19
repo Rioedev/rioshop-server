@@ -56,6 +56,22 @@ const exchangeItemSchema = new mongoose.Schema(
   { _id: false },
 );
 
+// Sản phẩm khách chủ động chọn đổi khi gửi yêu cầu (size/màu muốn đổi sang).
+// Khác với exchangeItems: đây là nguyện vọng của khách, chưa có returnDisposition
+// (việc xử lý hàng trả về vẫn do admin quyết khi hoàn tất).
+const requestedExchangeItemSchema = new mongoose.Schema(
+  {
+    productId: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
+    productName: { type: String, required: true },
+    originalVariantSku: { type: String, required: true },
+    originalVariantLabel: { type: String, required: true },
+    replacementVariantSku: { type: String, required: true },
+    replacementVariantLabel: { type: String, required: true },
+    quantity: { type: Number, required: true, min: 1 },
+  },
+  { _id: false },
+);
+
 const returnRequestSchema = new mongoose.Schema(
   {
     type: {
@@ -77,6 +93,7 @@ const returnRequestSchema = new mongoose.Schema(
       ref: "Order",
     },
     replacementOrderNumber: String,
+    requestedItems: [requestedExchangeItemSchema],
     exchangeItems: [exchangeItemSchema],
   },
   { _id: false },

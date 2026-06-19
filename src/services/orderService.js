@@ -753,6 +753,8 @@ export class OrderService {
       );
     }
 
+    const requestedItems = await this.buildRequestedExchangeItems(order, payload.items);
+
     order.returnRequest = {
       type: requestType,
       reason,
@@ -760,6 +762,7 @@ export class OrderService {
       images,
       status: "pending",
       requestedAt: now,
+      requestedItems,
     };
     order.timeline = order.timeline || [];
     order.timeline.push({
@@ -992,6 +995,93 @@ export class OrderService {
       source: "update_return_request_status",
     });
     return refreshedOrder;
+  }
+
+  // Validate nguyện vọng đổi hàng khách gửi (món nào, đổi sang biến thể nào, số lượng)
+  // và dựng snapshot label để admin/khách xem mà không cần fetch lại sản phẩm.
+  async buildRequestedExchangeItems(order, items = []) {
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new AppError("Hãy chọn ít nhất một sản phẩm cần đổi", 400);
+    }
+
+    const sourceItems = Array.isArray(order?.items) ? order.items : [];
+    const productIds = [
+      ...new Set(items.map((item) => (item.productId || "").toString().trim()).filter(Boolean)),
+    ];
+    const products = await Product.find({ _id: { $in: productIds }, deletedAt: null }).select(
+      "_id name variants",
+    );
+    const productMap = new Map(products.map((product) => [product._id.toString(), product]));
+
+    const processedKeys = new Set();
+    const requestedItems = [];
+
+    for (const requested of items) {
+      const productId = (requested.productId || "").toString().trim();
+      const originalVariantSku = (requested.originalVariantSku || "").toString().trim();
+      const replacementVariantSku = (requested.replacementVariantSku || "").toString().trim();
+      const quantity = Number(requested.quantity || 0);
+      const itemKey = `${productId}::${originalVariantSku}`;
+
+      if (processedKeys.has(itemKey)) {
+        throw new AppError("Một sản phẩm đang bị chọn đổi trùng lặp", 400);
+      }
+      processedKeys.add(itemKey);
+
+      const sourceItem = sourceItems.find(
+        (item) =>
+          item.productId?.toString?.() === productId &&
+          (item.variantSku || "").toString().trim() === originalVariantSku,
+      );
+      if (!sourceItem) {
+        throw new AppError("Sản phẩm cần đổi không có trong đơn", 400);
+      }
+
+      const remainingQuantity = Math.max(
+        0,
+        Number(sourceItem.quantity || 0) - Number(sourceItem.returnedQty || 0),
+      );
+      if (!Number.isInteger(quantity) || quantity <= 0 || quantity > remainingQuantity) {
+        throw new AppError(
+          `Số lượng đổi không hợp lệ cho sản phẩm ${sourceItem.productName || originalVariantSku}`,
+          400,
+        );
+      }
+
+      if (replacementVariantSku === originalVariantSku) {
+        throw new AppError("Vui lòng chọn biến thể khác với biến thể đang có", 400);
+      }
+
+      const product = productMap.get(productId);
+      if (!product) {
+        throw new AppError("Không tìm thấy sản phẩm cần đổi", 404);
+      }
+      const originalVariant = (product.variants || []).find(
+        (variant) => (variant.sku || "").toString().trim() === originalVariantSku,
+      );
+      const replacementVariant = (product.variants || []).find(
+        (variant) =>
+          variant.isActive !== false &&
+          (variant.sku || "").toString().trim() === replacementVariantSku,
+      );
+      if (!replacementVariant) {
+        throw new AppError("Biến thể muốn đổi sang hiện không khả dụng", 400);
+      }
+
+      requestedItems.push({
+        productId,
+        productName: sourceItem.productName || product.name || "Sản phẩm đổi",
+        originalVariantSku,
+        originalVariantLabel:
+          sourceItem.variantLabel || this.buildVariantLabel(originalVariant) || originalVariantSku,
+        replacementVariantSku,
+        replacementVariantLabel:
+          this.buildVariantLabel(replacementVariant) || replacementVariantSku,
+        quantity,
+      });
+    }
+
+    return requestedItems;
   }
 
   async buildExchangePlan(order, exchangeItems = [], session) {

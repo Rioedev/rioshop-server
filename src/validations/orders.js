@@ -139,6 +139,17 @@ export const submitReturnRequestValidation = Joi.object({
     reason: Joi.string().trim().min(5).max(500).required(),
     note: Joi.string().trim().allow("", null).max(1000).optional(),
     images: Joi.array().items(Joi.string().uri()).max(8).optional(),
+    items: Joi.array()
+      .items(
+        Joi.object({
+          productId: objectId.required(),
+          originalVariantSku: Joi.string().trim().required(),
+          replacementVariantSku: Joi.string().trim().required(),
+          quantity: Joi.number().integer().min(1).required(),
+        }),
+      )
+      .min(1)
+      .required(),
   }).required(),
 });
 
