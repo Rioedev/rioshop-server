@@ -86,7 +86,18 @@ const pricingSchema = new mongoose.Schema(
   {
     subtotal: { type: Number, required: true },
     discount: { type: Number, default: 0 },
+    // shippingFee is kept for backward compatibility and represents the
+    // shipping charge before a free-shipping coupon is deducted.
     shippingFee: { type: Number, required: true },
+    shippingQuotedFee: { type: Number, default: 0 },
+    shippingCarrierFee: { type: Number, default: 0 },
+    shippingCustomerPaid: { type: Number, default: 0 },
+    shippingSubsidy: { type: Number, default: 0 },
+    shippingFeeStatus: {
+      type: String,
+      enum: ["estimated", "confirmed", "legacy"],
+      default: "legacy",
+    },
     total: { type: Number, required: true },
     currency: { type: String, default: "VND" },
   },

@@ -91,12 +91,21 @@ GHN_API_BASE_URL=https://dev-online-gateway.ghn.vn/shiip/public-api
 GHN_MASTER_DATA_BASE_URL=https://dev-online-gateway.ghn.vn/shiip/public-api/master-data
 GHN_TRACKING_BASE_URL=https://donhang.ghn.vn/?order_code=
 GHN_TIMEOUT_MS=15000
+# 1: shop pays GHN; customer shipping is collected inside the RioShop order total.
+GHN_PAYMENT_TYPE_ID=1
 
 GHN_FROM_NAME=RioShop
 GHN_FROM_PHONE=0123456789
 GHN_FROM_ADDRESS=Your warehouse address
 GHN_FROM_DISTRICT_ID=0
 GHN_FROM_WARD_CODE=
+```
+
+Backfill phí GHN cho đơn cũ (mặc định chỉ xem trước):
+
+```bash
+npm run backfill:shipping-fees
+npm run backfill:shipping-fees -- --apply
 ```
 
 ### 5.4 Email

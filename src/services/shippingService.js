@@ -261,10 +261,21 @@ export class GHNShippingService {
       ghnData.main_service,
       ghnData.totalFee,
       ghnData.total_fee_amount,
+      ghnData.fee?.total,
+      ghnData.fee?.total_fee,
+      ghnData.fee?.main_service,
+      ghnData.fee?.service_fee,
     ];
 
-    const found = feeCandidates.find((value) => Number.isFinite(Number(value)));
+    const found = feeCandidates
+      .map((value) => Number(value))
+      .find((value) => Number.isFinite(value) && value > 0);
     return Number(found || 0);
+  }
+
+  static readConfirmedShippingFee(ghnData = {}) {
+    const data = ghnData?.data || ghnData || {};
+    return this.readNumericFee(data);
   }
 
   static async getProvinces() {
@@ -434,7 +445,9 @@ export class GHNShippingService {
       const response = await axios.post(
         `${GHN_API_BASE_URL}/v2/shipping-order/create`,
         {
-          payment_type_id: Number(orderData.codAmount || 0) > 0 ? 2 : 1,
+          // RioShop books the shipment and collects any customer shipping
+          // charge inside the order total, so GHN must charge the shop.
+          payment_type_id: Number(process.env.GHN_PAYMENT_TYPE_ID) === 2 ? 2 : 1,
           required_note: "KHONGCHOXEMHANG",
           service_type_id: serviceTypeId,
           from_name: orderData.senderName || sender.fromName,

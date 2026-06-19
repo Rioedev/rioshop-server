@@ -96,6 +96,42 @@ const lineCostExpression = {
   ],
 };
 
+const hasTrackedShippingFeeExpression = {
+  $in: ["$pricing.shippingFeeStatus", ["estimated", "confirmed"]],
+};
+
+const shippingQuotedFeeExpression = {
+  $cond: [
+    hasTrackedShippingFeeExpression,
+    { $ifNull: ["$pricing.shippingQuotedFee", 0] },
+    0,
+  ],
+};
+
+const shippingCarrierFeeExpression = {
+  $cond: [
+    hasTrackedShippingFeeExpression,
+    { $ifNull: ["$pricing.shippingCarrierFee", 0] },
+    0,
+  ],
+};
+
+const shippingCustomerPaidExpression = {
+  $cond: [
+    hasTrackedShippingFeeExpression,
+    { $ifNull: ["$pricing.shippingCustomerPaid", 0] },
+    0,
+  ],
+};
+
+const shippingSubsidyExpression = {
+  $cond: [
+    hasTrackedShippingFeeExpression,
+    { $ifNull: ["$pricing.shippingSubsidy", 0] },
+    0,
+  ],
+};
+
 const escapeRegex = (value = "") => String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const normalizePagination = (page, limit, maxLimit = 100) => {
@@ -491,6 +527,13 @@ class ReportingService {
                 orderCount: { $sum: 1 },
                 itemCount: { $sum: { $size: { $ifNull: ["$items", []] } } },
                 uniqueCustomers: { $addToSet: "$userId" },
+                shippingQuotedFee: { $sum: shippingQuotedFeeExpression },
+                shippingCarrierFee: { $sum: shippingCarrierFeeExpression },
+                shippingCustomerPaid: { $sum: shippingCustomerPaidExpression },
+                shippingSubsidy: { $sum: shippingSubsidyExpression },
+                shippingTrackedOrderCount: {
+                  $sum: { $cond: [hasTrackedShippingFeeExpression, 1, 0] },
+                },
               },
             },
           ],
@@ -532,11 +575,38 @@ class ReportingService {
             },
           },
           cost: { $ifNull: [{ $arrayElemAt: ["$costTotals.cost", 0] }, 0] },
+          shippingQuotedFee: {
+            $ifNull: [{ $arrayElemAt: ["$orderTotals.shippingQuotedFee", 0] }, 0],
+          },
+          shippingCarrierFee: {
+            $ifNull: [{ $arrayElemAt: ["$orderTotals.shippingCarrierFee", 0] }, 0],
+          },
+          shippingCustomerPaid: {
+            $ifNull: [{ $arrayElemAt: ["$orderTotals.shippingCustomerPaid", 0] }, 0],
+          },
+          shippingSubsidy: {
+            $ifNull: [{ $arrayElemAt: ["$orderTotals.shippingSubsidy", 0] }, 0],
+          },
+          shippingTrackedOrderCount: {
+            $ifNull: [{ $arrayElemAt: ["$orderTotals.shippingTrackedOrderCount", 0] }, 0],
+          },
         },
       },
       {
         $addFields: {
           grossProfit: { $subtract: ["$revenue", "$cost"] },
+          profitAfterShipping: {
+            $subtract: [
+              { $add: [{ $subtract: ["$revenue", "$cost"] }, "$shippingCustomerPaid"] },
+              "$shippingCarrierFee",
+            ],
+          },
+          shippingNetCost: {
+            $subtract: ["$shippingCarrierFee", "$shippingCustomerPaid"],
+          },
+          shippingUntrackedOrderCount: {
+            $subtract: ["$orderCount", "$shippingTrackedOrderCount"],
+          },
           marginRate: {
             $cond: [
               { $gt: ["$revenue", 0] },
@@ -548,6 +618,28 @@ class ReportingService {
             $cond: [
               { $gt: ["$orderCount", 0] },
               { $divide: ["$revenue", "$orderCount"] },
+              0,
+            ],
+          },
+          profitAfterShippingMarginRate: {
+            $cond: [
+              { $gt: [{ $add: ["$revenue", "$shippingCustomerPaid"] }, 0] },
+              {
+                $divide: [
+                  {
+                    $subtract: [
+                      {
+                        $add: [
+                          { $subtract: ["$revenue", "$cost"] },
+                          "$shippingCustomerPaid",
+                        ],
+                      },
+                      "$shippingCarrierFee",
+                    ],
+                  },
+                  { $add: ["$revenue", "$shippingCustomerPaid"] },
+                ],
+              },
               0,
             ],
           },
@@ -564,6 +656,15 @@ class ReportingService {
       cost: 0,
       grossProfit: 0,
       marginRate: 0,
+      shippingQuotedFee: 0,
+      shippingCarrierFee: 0,
+      shippingCustomerPaid: 0,
+      shippingSubsidy: 0,
+      shippingNetCost: 0,
+      shippingTrackedOrderCount: 0,
+      shippingUntrackedOrderCount: 0,
+      profitAfterShipping: 0,
+      profitAfterShippingMarginRate: 0,
     };
   }
 

@@ -46,6 +46,15 @@ const shipmentSchema = new mongoose.Schema({
   shippingAddress: mongoose.Schema.Types.Mixed,
   weight: Number,
   codAmount: Number,
+  quotedFee: { type: Number, default: 0 },
+  carrierFee: { type: Number, default: 0 },
+  customerPaidFee: { type: Number, default: 0 },
+  shopSubsidy: { type: Number, default: 0 },
+  feeStatus: {
+    type: String,
+    enum: ["estimated", "confirmed", "legacy"],
+    default: "legacy",
+  },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now },
 });

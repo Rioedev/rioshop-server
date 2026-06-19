@@ -139,6 +139,15 @@ export class ShipmentService {
       if (data.recipientPhone !== undefined) shipment.recipientPhone = data.recipientPhone;
       if (data.weight !== undefined) shipment.weight = Number(data.weight);
       if (data.codAmount !== undefined) shipment.codAmount = Number(data.codAmount);
+      if (data.quotedFee !== undefined) shipment.quotedFee = Math.max(0, Number(data.quotedFee));
+      if (data.carrierFee !== undefined) shipment.carrierFee = Math.max(0, Number(data.carrierFee));
+      if (data.customerPaidFee !== undefined) {
+        shipment.customerPaidFee = Math.max(0, Number(data.customerPaidFee));
+      }
+      if (data.shopSubsidy !== undefined) {
+        shipment.shopSubsidy = Math.max(0, Number(data.shopSubsidy));
+      }
+      if (data.feeStatus !== undefined) shipment.feeStatus = data.feeStatus;
 
       if (
         nextStatus !== previousStatus ||
@@ -164,6 +173,43 @@ export class ShipmentService {
       await shipment.save();
 
       if (shipment.orderId) {
+        if (data.carrierFee !== undefined) {
+          const order = await Order.findById(shipment.orderId).select(
+            "pricing couponType couponDiscount",
+          );
+          if (order?.pricing) {
+            const carrierFee = Math.max(0, Number(data.carrierFee));
+            const legacyCustomerPaid =
+              order.couponType === "free_ship"
+                ? Math.max(
+                    0,
+                    Number(order.pricing.shippingFee || 0) -
+                      Number(order.couponDiscount || 0),
+                  )
+                : Math.max(0, Number(order.pricing.shippingFee || 0));
+            const customerPaidFee = Math.max(
+              0,
+              Number(
+                data.customerPaidFee ??
+                  (order.pricing.shippingFeeStatus === "legacy"
+                    ? legacyCustomerPaid
+                    : order.pricing.shippingCustomerPaid) ??
+                  legacyCustomerPaid,
+              ),
+            );
+            order.pricing.shippingQuotedFee = Math.max(
+              0,
+              Number(data.quotedFee ?? order.pricing.shippingQuotedFee ?? carrierFee),
+            );
+            order.pricing.shippingCarrierFee = carrierFee;
+            order.pricing.shippingCustomerPaid = customerPaidFee;
+            order.pricing.shippingSubsidy = Math.max(0, carrierFee - customerPaidFee);
+            order.pricing.shippingFeeStatus = data.feeStatus || "confirmed";
+            order.updatedAt = new Date();
+            await order.save();
+          }
+        }
+
         const mappedOrderStatus = SHIPMENT_TO_ORDER_STATUS[shipment.status];
         if (mappedOrderStatus) {
           const order = await Order.findById(shipment.orderId).select(
@@ -228,6 +274,10 @@ export class ShipmentService {
       const carrierStatus = normalizeCarrierStatusToken(
         payload.status || payload.statusCode || payload.state,
       );
+      const confirmedCarrierFee =
+        (carrier || "").toString().trim().toUpperCase() === "GHN"
+          ? GHNShippingService.readConfirmedShippingFee(payload)
+          : 0;
 
       return await this.updateTracking(shipment._id, {
         status: normalizedStatus || shipment.status,
@@ -235,6 +285,13 @@ export class ShipmentService {
         location: payload.location || payload.current_location || "",
         note: payload.note || payload.description || "",
         eventAt: payload.updatedAt || payload.time || new Date(),
+        ...(confirmedCarrierFee > 0
+          ? {
+              quotedFee: Number(shipment.quotedFee || confirmedCarrierFee),
+              carrierFee: confirmedCarrierFee,
+              feeStatus: "confirmed",
+            }
+          : {}),
       });
     } catch (error) {
       throw error;
@@ -314,8 +371,13 @@ export class ShipmentService {
     GHNShippingService.assertConfigured();
     const detail = await GHNShippingService.trackShipment(shipment.trackingCode);
     const resolved = this.extractGhnTrackingState(detail);
+    const confirmedCarrierFee = GHNShippingService.readConfirmedShippingFee(detail);
+    const hasFeeChanged =
+      confirmedCarrierFee > 0 &&
+      (Number(shipment.carrierFee || 0) !== confirmedCarrierFee ||
+        shipment.feeStatus !== "confirmed");
 
-    if (!resolved.internalStatus && !resolved.carrierStatus) {
+    if (!resolved.internalStatus && !resolved.carrierStatus && !hasFeeChanged) {
       return {
         updated: false,
         reason: "missing_status_from_ghn",
@@ -330,7 +392,7 @@ export class ShipmentService {
       normalizeCarrierStatusToken(nextCarrierStatus) !==
       normalizeCarrierStatusToken(shipment.carrierStatus || "");
 
-    if (!hasStatusChanged && !hasCarrierStatusChanged) {
+    if (!hasStatusChanged && !hasCarrierStatusChanged && !hasFeeChanged) {
       return {
         updated: false,
         reason: "status_unchanged",
@@ -346,6 +408,22 @@ export class ShipmentService {
       location: resolved.location || "",
       note: "",
       eventAt: resolved.eventAt || new Date().toISOString(),
+      ...(hasFeeChanged
+        ? {
+            quotedFee: Number(shipment.quotedFee || confirmedCarrierFee),
+            carrierFee: confirmedCarrierFee,
+            ...(shipment.feeStatus !== "legacy"
+              ? {
+                  customerPaidFee: Number(shipment.customerPaidFee || 0),
+                  shopSubsidy: Math.max(
+                    0,
+                    confirmedCarrierFee - Number(shipment.customerPaidFee || 0),
+                  ),
+                }
+              : {}),
+            feeStatus: "confirmed",
+          }
+        : {}),
     });
 
     return {

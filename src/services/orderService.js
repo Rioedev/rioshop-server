@@ -274,8 +274,21 @@ export class OrderService {
       couponId = validation.coupon._id;
     }
 
+    const merchandiseDiscount =
+      couponType === "free_ship" ? 0 : Math.min(subtotal, couponDiscount);
+    const shippingDiscount =
+      couponType === "free_ship"
+        ? couponDiscount
+        : Math.max(0, couponDiscount - merchandiseDiscount);
+    const shippingCustomerPaid = Math.max(0, shippingFeeInput - shippingDiscount);
+    const shippingCarrierFee = Number(shippingQuote.rawShippingFee || 0);
     const pricing = this.calculatePricing(items, {
       shippingFee: shippingFeeInput,
+      shippingQuotedFee: shippingCarrierFee,
+      shippingCarrierFee,
+      shippingCustomerPaid,
+      shippingSubsidy: Math.max(0, shippingCarrierFee - shippingCustomerPaid),
+      shippingFeeStatus: "estimated",
       discount: couponDiscount,
       currency: data.pricing?.currency || "VND",
     });
@@ -1139,6 +1152,11 @@ export class OrderService {
         subtotal: 0,
         discount: 0,
         shippingFee: 0,
+        shippingQuotedFee: 0,
+        shippingCarrierFee: 0,
+        shippingCustomerPaid: 0,
+        shippingSubsidy: 0,
+        shippingFeeStatus: "estimated",
         total: 0,
         currency: order.pricing?.currency || "VND",
       },
@@ -1946,6 +1964,24 @@ export class OrderService {
     });
 
     const ghnData = created?.data || {};
+    const confirmedCarrierFee = GHNShippingService.readConfirmedShippingFee(ghnData);
+    const quotedFee = Math.max(
+      0,
+      Number(order.pricing?.shippingQuotedFee || order.pricing?.shippingCarrierFee || 0),
+    );
+    const carrierFee = confirmedCarrierFee > 0 ? confirmedCarrierFee : quotedFee;
+    const customerPaidFee = Math.max(
+      0,
+      Number(order.pricing?.shippingCustomerPaid ?? order.pricing?.shippingFee ?? 0),
+    );
+    const feeStatus = confirmedCarrierFee > 0 ? "confirmed" : "estimated";
+
+    order.pricing.shippingQuotedFee = quotedFee;
+    order.pricing.shippingCarrierFee = carrierFee;
+    order.pricing.shippingCustomerPaid = customerPaidFee;
+    order.pricing.shippingSubsidy = Math.max(0, carrierFee - customerPaidFee);
+    order.pricing.shippingFeeStatus = feeStatus;
+
     const trackingCode =
       ghnData.order_code ||
       ghnData.orderCode ||
@@ -1990,6 +2026,11 @@ export class OrderService {
       shippingAddress,
       weight: packageProfile.weight,
       codAmount,
+      quotedFee,
+      carrierFee,
+      customerPaidFee,
+      shopSubsidy: Math.max(0, carrierFee - customerPaidFee),
+      feeStatus,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -2012,6 +2053,12 @@ export class OrderService {
   calculatePricing(items = [], payload = {}) {
     const subtotal = items.reduce((sum, item) => sum + item.totalPrice, 0);
     const shippingFee = Number(payload.shippingFee || 0);
+    const shippingQuotedFee = Math.max(0, Number(payload.shippingQuotedFee || 0));
+    const shippingCarrierFee = Math.max(0, Number(payload.shippingCarrierFee || 0));
+    const shippingCustomerPaid = Math.max(
+      0,
+      Number(payload.shippingCustomerPaid ?? shippingFee),
+    );
     const discount = Number(payload.discount || 0);
     const total = Math.max(0, subtotal + shippingFee - discount);
 
@@ -2019,6 +2066,14 @@ export class OrderService {
       subtotal,
       discount,
       shippingFee,
+      shippingQuotedFee,
+      shippingCarrierFee,
+      shippingCustomerPaid,
+      shippingSubsidy: Math.max(
+        0,
+        Number(payload.shippingSubsidy ?? shippingCarrierFee - shippingCustomerPaid),
+      ),
+      shippingFeeStatus: payload.shippingFeeStatus || "estimated",
       total,
       currency: payload.currency || "VND",
     };

@@ -113,13 +113,20 @@ export const exportSalesReportXlsx = asyncHandler(async (req, res) => {
     { metric: "Giá vốn ước tính", value: overview.cost },
     { metric: "Lãi gộp ước tính", value: overview.grossProfit },
     { metric: "Tỷ suất lãi gộp", value: overview.marginRate },
+    { metric: "Phí vận chuyển khách trả", value: overview.shippingCustomerPaid },
+    { metric: "Phí hãng vận chuyển", value: overview.shippingCarrierFee },
+    { metric: "Chi phí ship cửa hàng chịu", value: overview.shippingNetCost },
+    { metric: "Lợi nhuận sau phí ship", value: overview.profitAfterShipping },
+    { metric: "Tỷ suất lợi nhuận sau phí ship", value: overview.profitAfterShippingMarginRate },
+    { metric: "Số đơn cũ chưa có phí hãng", value: overview.shippingUntrackedOrderCount },
     { metric: "Giá trị trung bình mỗi đơn", value: overview.avgOrderValue },
   ]);
   styleWorksheet(summary);
-  ["B4", "B8", "B9", "B11"].forEach((cell) => {
+  ["B4", "B8", "B9", "B11", "B12", "B13", "B14", "B17"].forEach((cell) => {
     summary.getCell(cell).numFmt = "#,##0 [$₫-vi-VN]";
   });
   summary.getCell("B10").numFmt = "0.00%";
+  summary.getCell("B15").numFmt = "0.00%";
 
   addReportSheet(
     workbook,
